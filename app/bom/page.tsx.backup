@@ -1,0 +1,3353 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { Box, Button, Text, Input, Group, Table, Select, Textarea, NumberInput, Badge, Modal, Drawer, Tabs } from "@mantine/core";
+import { Navigation } from "@/components/Navigation";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { LogoutButton } from "@/components/LogoutButton";
+
+interface PurchaseOrderItem {
+  id: string;
+  itemName: string;
+  itemType: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalPrice: number;
+  description: string;
+}
+
+interface PurchaseOrder {
+  id: string;
+  poNumber: string;
+  items: PurchaseOrderItem[];
+  deliveryDate: string;
+  paymentTerms: string;
+  notes: string;
+  totalAmount: number;
+  status: string;
+  createdBy: string;
+  approvedBy?: string;
+  rejectionRemarks?: string;
+  suppliers?: Supplier[];
+}
+
+interface Supplier {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+}
+
+const itemTypes = ["Raw Material", "Components", "Equipment", "Packaging", "Tools", "Other"];
+const units = ["kg", "pieces", "liters", "meters", "boxes", "tons", "gallons"];
+const paymentTerms = ["Net 30", "Net 60", "COD", "Advance Payment", "50/50"];
+
+export default function Purchase() {
+  const [currentPage, setCurrentPage] = useState(2);
+  const [user, setUser] = useState<any>(null);
+  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [bomSends, setBOMSends] = useState<any[]>([]);
+  const [bomRates, setBomRates] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>("po");
+  
+  // New state variables for functionality
+  const [showBOMDrawer, setShowBOMDrawer] = useState(false);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [showSupplierForm, setShowSupplierForm] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [supplierName, setSupplierName] = useState("");
+  const [supplierEmail, setSupplierEmail] = useState("");
+  const [supplierPhone, setSupplierPhone] = useState("");
+  const [supplierAddress, setSupplierAddress] = useState("");
+  
+  // BOM Form states
+  const [showForm, setShowForm] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [paymentTerm, setPaymentTerm] = useState<string | null>("Net 30");
+  
+  // Check which BOMs have been sent to finance
+  const [bomFinanceStatus, setBomFinanceStatus] = useState<{[key: string]: boolean}>({});
+  const [notes, setNotes] = useState("");
+  const [itemName, setItemName] = useState("");
+  const [itemType, setItemType] = useState<string | null>("Raw Material");
+  const [quantity, setQuantity] = useState<number | string>("");
+  const [unit, setUnit] = useState<string | null>("kg");
+  const [unitPrice, setUnitPrice] = useState<number | string>("");
+  const [description, setDescription] = useState("");
+  const [items, setItems] = useState<PurchaseOrderItem[]>([]);
+  
+  // Notification states
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  
+  // Selected suppliers for PO
+  const [selectedSuppliersForPO, setSelectedSuppliersForPO] = useState<Supplier[]>([]);
+  const [selectedSupplierDropdown, setSelectedSupplierDropdown] = useState<string | null>(null);
+  
+  // Modal states
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [showSendModal, setShowSendModal] = useState(false);
+
+  useEffect(() => {
+    const userStr = localStorage.getItem("user");
+    if (userStr) {
+      setUser(JSON.parse(userStr));
+    }
+    fetchOrders();
+    fetchSuppliers();
+    fetchBOMSends();
+    fetchBOMRates();
+  }, []);
+
+  useEffect(() => {
+    if (user?.username) {
+      fetchNotifications();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const checkAllFinanceStatus = async () => {
+      try {
+        const res = await fetch('/api/finance/bom-invoices');
+        const invoices = await res.json();
+        const statusMap: {[key: string]: boolean} = {};
+        
+        orders.forEach(order => {
+          const existingInvoice = invoices.find((invoice: any) => invoice.bomId === order.id);
+          statusMap[order.id] = !!existingInvoice;
+        });
+        
+        setBomFinanceStatus(statusMap);
+      } catch (error) {
+        console.error('Error checking finance status:', error);
+      }
+    };
+    
+    if (orders.length > 0) {
+      checkAllFinanceStatus();
+    }
+  }, [orders]);
+
+  const fetchOrders = async () => {
+    const res = await fetch("/api/purchase/orders");
+    const data = await res.json();
+    setOrders(data);
+  };
+
+  const fetchSuppliers = async () => {
+    try {
+      const res = await fetch("/api/suppliers");
+      const data = await res.json();
+      setSuppliers(data);
+    } catch (error) {
+      console.error("Error fetching suppliers:", error);
+    }
+  };
+
+  const fetchBOMSends = async () => {
+    try {
+      const res = await fetch("/api/bom-sends");
+      const data = await res.json();
+      setBOMSends(data);
+    } catch (error) {
+      console.error("Error fetching BOM sends:", error);
+    }
+  };
+
+  const fetchBOMRates = async () => {
+    try {
+      const res = await fetch("/api/bom-rates");
+      if (res.ok) {
+        const data = await res.json();
+        setBomRates(data);
+      }
+    } catch (error) {
+      console.error("Error fetching BOM rates:", error);
+    }
+  };
+
+  const editSupplier = (supplier: Supplier) => {
+    setEditingSupplier(supplier);
+    setSupplierName(supplier.name);
+    setSupplierEmail(supplier.email);
+    setSupplierPhone(supplier.phone);
+    setSupplierAddress(supplier.address);
+    setShowSupplierForm(true);
+  };
+
+  const deleteSupplier = async (id: string) => {
+    try {
+      const res = await fetch("/api/suppliers", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      
+      if (res.ok) {
+        fetchSuppliers();
+        console.log("Supplier deleted successfully");
+      } else {
+        const error = await res.json();
+        console.error("Failed to delete supplier:", error);
+        alert("Failed to delete supplier: " + (error.error || "Unknown error"));
+      }
+    } catch (error) {
+      console.error("Error deleting supplier:", error);
+      alert("Error deleting supplier. Please try again.");
+    }
+  };
+
+  const fetchNotifications = async () => {
+    if (!user?.username) return;
+    try {
+      const res = await fetch(`/api/notifications?userId=${user?.username}`);
+      const data = await res.json();
+      const unread = data.filter((n: any) => !n.read);
+      setNotifications(unread);
+      setUnreadCount(unread.length);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    }
+  };
+
+  const addItem = () => {
+    if (!itemName || !quantity || !itemType || !unit) {
+      alert("Please fill all required fields in item (marked with *)");
+      return;
+    }
+    const totalPrice = unitPrice ? Number(quantity) * Number(unitPrice) : 0;
+    const newItem: PurchaseOrderItem = {
+      id: Date.now().toString(),
+      itemName,
+      itemType: itemType || "Raw Material",
+      quantity: Number(quantity),
+      unit: unit || "kg",
+      unitPrice: unitPrice ? Number(unitPrice) : 0,
+      totalPrice,
+      description,
+    };
+    setItems([...items, newItem]);
+    setItemName("");
+    setQuantity("");
+    setUnitPrice("");
+    setDescription("");
+  };
+
+  const removeItem = (id: string) => {
+    setItems(items.filter((item) => item.id !== id));
+  };
+
+  const submitPO = async () => {
+    if (!deliveryDate || !paymentTerm || items.length === 0) {
+      alert("Please fill all required fields (marked with *)");
+      return;
+    }
+    const totalAmount = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    await fetch("/api/purchase/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items,
+        deliveryDate,
+        paymentTerms: paymentTerm,
+        notes,
+        totalAmount,
+        createdBy: user?.username,
+        suppliers: selectedSuppliersForPO,
+      }),
+    });
+    setDeliveryDate("");
+    setPaymentTerm("Net 30");
+    setNotes("");
+    setItems([]);
+    setSelectedSuppliersForPO([]);
+    setShowForm(false);
+    fetchOrders();
+    fetchNotifications();
+  };
+
+  const addSupplierToPO = () => {
+    if (!selectedSupplierDropdown) {
+      alert("Please select a supplier");
+      return;
+    }
+    const supplier = suppliers.find((s) => s.id === selectedSupplierDropdown);
+    if (supplier && !selectedSuppliersForPO.find((s) => s.id === supplier.id)) {
+      setSelectedSuppliersForPO([...selectedSuppliersForPO, supplier]);
+      setSelectedSupplierDropdown(null);
+    }
+  };
+
+  const removeSupplierFromPO = (supplierId: string) => {
+    setSelectedSuppliersForPO(selectedSuppliersForPO.filter((s) => s.id !== supplierId));
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "draft": return "gray";
+      case "pending_approval": return "yellow";
+      case "approved": return "green";
+      case "rejected": return "red";
+      case "sent_to_supplier": return "blue";
+      case "sent_to_finance": return "purple";
+      case "completed": return "teal";
+      default: return "gray";
+    }
+  };
+
+  const trackBOMSend = async (supplier: Supplier, po: PurchaseOrder) => {
+    try {
+      await fetch("/api/bom-sends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bomId: po.id,
+          bomNumber: po.poNumber,
+          supplierId: supplier.id,
+          supplierName: supplier.name,
+          supplierPhone: supplier.phone,
+          items: po.items,
+        }),
+      });
+      fetchBOMSends();
+    } catch (error) {
+      console.error("Error tracking BOM send:", error);
+    }
+  };
+
+  const generateWhatsAppLink = (supplier: Supplier, po: PurchaseOrder) => {
+    const message = `Hello ${supplier.name},\n\nWe are interested in the following items:\n\n${po.items.map((item) => `- ${item.itemName}: ${item.quantity} ${item.unit}`).join("\n")}\n\nPlease provide your best rate with detailed breakdown including:\n- Unit Price per item\n- Transport Cost\n- Tax\n- Total Amount\n\nDelivery Required By: ${po.deliveryDate}\nPayment Terms: ${po.paymentTerms}\n\nPlease confirm availability and send your quotation.`;
+    const encodedMessage = encodeURIComponent(message);
+    return `https://wa.me/${supplier.phone.replace(/\D/g, "")}?text=${encodedMessage}`;
+  };
+
+  return (
+    <ProtectedRoute>
+      <Box style={{ width: "100%", minHeight: "100vh", backgroundColor: "white", display: "flex", flexDirection: "row", fontFamily: "Poppins, sans-serif", padding: "40px" }}>
+        <Navigation currentPage={currentPage} />
+        
+        {/* Vertical separator line */}
+        <Box
+          style={{
+            position: "fixed",
+            left: "260px",
+            top: "0",
+            bottom: "0",
+            width: "1px",
+            backgroundColor: "#e0e0e0",
+            zIndex: 10
+          }}
+        />
+        
+        <Box style={{ marginLeft: "200px", flex: 1, paddingBottom: "100px" }}>
+          <Box style={{ border: "1px solid #ccc", borderRadius: "4px", padding: "30px", marginTop: "40px", marginLeft: "80px", marginRight: "-400px", width: "1300px", minHeight: "600px", position: "relative" }}>
+            
+            {/* + Icon & Notification - Top Right */}
+            <Box
+              style={{
+                position: "absolute",
+                top: "20px",
+                right: "20px",
+                display: "flex",
+                gap: "12px",
+                alignItems: "center",
+              }}
+            >
+              <Box style={{ position: "relative" }}>
+                <Button
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  style={{
+                    backgroundColor: "transparent",
+                    color: "#999",
+                    border: "none",
+                    fontFamily: "Poppins, sans-serif",
+                    padding: "6px 10px",
+                    fontSize: "16px",
+                    fontWeight: "300",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                  {!showNotifications && unreadCount > 0 && unreadCount}
+                </Button>
+                
+                {showNotifications && (
+                  <>
+                    <Box
+                      onClick={() => setShowNotifications(false)}
+                      style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        zIndex: 999,
+                      }}
+                    />
+                    <Box
+                      style={{
+                        position: "absolute",
+                        top: "100%",
+                        right: 0,
+                        backgroundColor: "#fff",
+                        border: "none",
+                        borderRadius: "4px",
+                        minWidth: "300px",
+                        maxHeight: "400px",
+                        overflowY: "auto",
+                        zIndex: 1001,
+                        marginTop: "10px",
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      }}
+                    >
+                      {notifications.length === 0 ? (
+                        <Text style={{ padding: "20px", color: "#999", fontSize: "12px" }}>
+                          No notifications
+                        </Text>
+                      ) : (
+                        <>
+                          {notifications.map((notif) => (
+                            <Box
+                              key={notif.id}
+                              style={{
+                                padding: "12px",
+                                borderBottom: "1px solid #eee",
+                                cursor: "pointer",
+                                backgroundColor: "#f9f9f9",
+                              }}
+                            >
+                              <Text style={{ fontWeight: "600", fontSize: "11px" }}>
+                                {notif.title}
+                              </Text>
+                              <Text style={{ fontSize: "11px", color: "#666", marginTop: "3px" }}>
+                                {notif.message}
+                              </Text>
+                            </Box>
+                          ))}
+                          <Box style={{ padding: "12px", borderTop: "1px solid #eee", display: "flex", justifyContent: "center" }}>
+                            <Button
+                              onClick={() => setShowNotifications(false)}
+                              size="xs"
+                              style={{
+                                backgroundColor: "transparent",
+                                color: "#999",
+                                border: "1px solid #e0e0e0",
+                                fontFamily: "Poppins, sans-serif",
+                                fontSize: "11px",
+                                padding: "6px 12px",
+                              }}
+                            >
+                              Close
+                            </Button>
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  </>
+                )}
+              </Box>
+
+              <Button
+                onClick={() => {
+                  if (activeTab === "po") {
+                    setShowForm(!showForm);
+                  } else if (activeTab === "suppliers") {
+                    setEditingSupplier(null);
+                    setSupplierName("");
+                    setSupplierEmail("");
+                    setSupplierPhone("");
+                    setSupplierAddress("");
+                    setShowSupplierForm(!showSupplierForm);
+                  }
+                }}
+                style={{
+                  backgroundColor: "transparent",
+                  color: "#999",
+                  fontFamily: "Poppins, sans-serif",
+                  fontSize: "24px",
+                  padding: "0px",
+                  border: "none",
+                  cursor: "pointer",
+                  width: "30px",
+                  height: "30px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: "300",
+                }}
+              >
+                +
+              </Button>
+            </Box>
+            
+            <Tabs value={activeTab} onChange={setActiveTab} style={{ marginTop: "20px" }}>
+              <Tabs.List>
+                <Tabs.Tab value="po" style={{ fontFamily: "Poppins, sans-serif" }}>Bills of Material</Tabs.Tab>
+                <Tabs.Tab value="suppliers" style={{ fontFamily: "Poppins, sans-serif" }}>Suppliers</Tabs.Tab>
+              </Tabs.List>
+
+              <Tabs.Panel value="po" style={{ paddingTop: "20px" }}>
+                <Box style={{ paddingLeft: "0px" }}>
+                  <Tabs defaultValue="pending">
+                    <Tabs.List>
+                      <Tabs.Tab value="pending">
+                        Pending BOMs ({orders.filter(order => !bomFinanceStatus[order.id]).length})
+                      </Tabs.Tab>
+                      <Tabs.Tab value="sent_to_finance">
+                        Sent to Finance ({orders.filter(order => bomFinanceStatus[order.id]).length})
+                      </Tabs.Tab>
+                    </Tabs.List>
+
+                    <Tabs.Panel value="pending" pt="md">
+                      <Text style={{ fontSize: "18px", fontWeight: "600", marginBottom: "20px" }}>Pending Bills of Material</Text>
+                      {orders.filter(order => !bomFinanceStatus[order.id]).length === 0 ? (
+                        <Text style={{ color: "#999", fontSize: "14px" }}>No pending Bills of Material.</Text>
+                      ) : (
+                        <Table striped>
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>BOM Number</Table.Th>
+                              <Table.Th>Items</Table.Th>
+                              <Table.Th>Total Amount</Table.Th>
+                              <Table.Th>Delivery Date</Table.Th>
+                              <Table.Th>Status</Table.Th>
+                              <Table.Th>Action</Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {orders.filter(order => !bomFinanceStatus[order.id]).map((order) => {
+                              const bomSent = bomSends.some(send => send.bomId === order.id);
+                              
+                              return (
+                                <Table.Tr key={order.id}>
+                                  <Table.Td>{order.poNumber}</Table.Td>
+                                  <Table.Td>{order.items.length}</Table.Td>
+                                  <Table.Td>PKR {order.totalAmount.toFixed(2)}</Table.Td>
+                                  <Table.Td>{order.deliveryDate}</Table.Td>
+                                  <Table.Td>
+                                    <Badge color={getStatusColor(order.status)}>
+                                      {order.status.replace(/_/g, " ")}
+                                    </Badge>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Group gap="8px">
+                                      <Button
+                                        onClick={() => {
+                                          setSelectedPO(order);
+                                          setShowApprovalModal(true);
+                                        }}
+                                        size="xs"
+                                        style={{
+                                          backgroundColor: "#007bff",
+                                          color: "#fff",
+                                          fontSize: "10px",
+                                        }}
+                                      >
+                                        View
+                                      </Button>
+                                      {order.status === "approved" && !bomSent && (
+                                        <Button
+                                          onClick={() => {
+                                            setSelectedPO(order);
+                                            setShowSendModal(true);
+                                          }}
+                                          size="xs"
+                                          style={{
+                                            backgroundColor: "#28a745",
+                                            color: "#fff",
+                                            fontSize: "10px",
+                                          }}
+                                        >
+                                          Send to Suppliers
+                                        </Button>
+                                      )}
+                                      {order.status === "approved" && bomSent && (
+                                        <Button
+                                          onClick={() => {
+                                            setSelectedPO(order);
+                                            setShowCompareModal(true);
+                                          }}
+                                          size="xs"
+                                          style={{
+                                            backgroundColor: "#ffc107",
+                                            color: "#000",
+                                            fontSize: "10px",
+                                          }}
+                                        >
+                                          Compare Rates
+                                        </Button>
+                                      )}
+                                    </Group>
+                                  </Table.Td>
+                                </Table.Tr>
+                              );
+                            })}
+                          </Table.Tbody>
+                        </Table>
+                      )}
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="sent_to_finance" pt="md">
+                      <Text style={{ fontSize: "18px", fontWeight: "600", marginBottom: "20px" }}>Bills of Material Sent to Finance</Text>
+                      {orders.filter(order => bomFinanceStatus[order.id]).length === 0 ? (
+                        <Text style={{ color: "#999", fontSize: "14px" }}>No Bills of Material sent to finance yet.</Text>
+                      ) : (
+                        <Table striped>
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>BOM Number</Table.Th>
+                              <Table.Th>Items</Table.Th>
+                              <Table.Th>Total Amount</Table.Th>
+                              <Table.Th>Delivery Date</Table.Th>
+                              <Table.Th>Status</Table.Th>
+                              <Table.Th>Action</Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {orders.filter(order => bomFinanceStatus[order.id]).map((order) => {
+                              return (
+                                <Table.Tr key={order.id}>
+                                  <Table.Td>{order.poNumber}</Table.Td>
+                                  <Table.Td>{order.items.length}</Table.Td>
+                                  <Table.Td>PKR {order.totalAmount.toFixed(2)}</Table.Td>
+                                  <Table.Td>{order.deliveryDate}</Table.Td>
+                                  <Table.Td>
+                                    <Badge color={getStatusColor('sent_to_finance')}>
+                                      sent to finance
+                                    </Badge>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Group gap="8px">
+                                      <Button
+                                        onClick={() => {
+                                          setSelectedPO(order);
+                                          setShowApprovalModal(true);
+                                        }}
+                                        size="xs"
+                                        style={{
+                                          backgroundColor: "#007bff",
+                                          color: "#fff",
+                                          fontSize: "10px",
+                                        }}
+                                      >
+                                        View
+                                      </Button>
+                                      <Badge color="green" size="sm">
+                                        Processing in Finance
+                                      </Badge>
+                                    </Group>
+                                  </Table.Td>
+                                </Table.Tr>
+                              );
+                            })}
+                          </Table.Tbody>
+                        </Table>
+                      )}
+                    </Tabs.Panel>
+                  </Tabs>
+                </Box>
+                              <Table.Td>
+                                <Group gap="8px">
+                                  <Button
+                                    onClick={() => {
+                                      setSelectedPO(order);
+                                      setShowApprovalModal(true);
+                                    }}
+                                    size="xs"
+                                    style={{
+                                      backgroundColor: "#007bff",
+                                      color: "#fff",
+                                      fontSize: "10px",
+                                    }}
+                                  >
+                                    View
+                                  </Button>
+                                  
+                                  {order.status === "approved" && (
+                                    <>
+                                      {!bomSent ? (
+                                        <Button
+                                          onClick={() => {
+                                            setSelectedPO(order);
+                                            setShowSendModal(true);
+                                          }}
+                                          size="xs"
+                                          style={{
+                                            backgroundColor: "#28a745",
+                                            color: "#fff",
+                                            fontSize: "10px",
+                                          }}
+                                        >
+                                          Send to Suppliers
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          onClick={() => {
+                                            setSelectedPO(order);
+                                            setShowSendModal(true);
+                                          }}
+                                          size="xs"
+                                          style={{
+                                            backgroundColor: "#ffc107",
+                                            color: "#000",
+                                            fontSize: "10px",
+                                          }}
+                                        >
+                                          Resend
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                </Group>
+                              </Table.Td>
+                            </Table.Tr>
+                          );
+                        })}
+                      </Table.Tbody>
+                    </Table>
+                  )}
+                    </Tabs.Panel>
+                  </Tabs>
+                </Box>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="suppliers" style={{ paddingTop: "20px" }}>
+                <Box>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                    <Text style={{ fontSize: "18px", fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+                      Suppliers
+                    </Text>
+                    <Button
+                      onClick={() => setShowCompareModal(true)}
+                      style={{
+                        backgroundColor: "#28a745",
+                        color: "#fff",
+                        fontFamily: "Poppins, sans-serif",
+                        fontSize: "12px",
+                      }}
+                      size="xs"
+                    >
+                      Compare Rates
+                    </Button>
+                  </div>
+
+                  {suppliers.length === 0 ? (
+                    <Text style={{ color: "#999", fontSize: "14px", fontFamily: "Poppins, sans-serif" }}>No suppliers yet.</Text>
+                  ) : (
+                    <Table striped>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Name</Table.Th>
+                          <Table.Th>Email</Table.Th>
+                          <Table.Th>Phone</Table.Th>
+                          <Table.Th>Address</Table.Th>
+                          <Table.Th>Action</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {suppliers.map((supplier) => {
+                          const supplierBoms = bomSends.filter((bom) => 
+                            bom.supplierId === supplier.id && 
+                            orders.some(order => order.id === bom.bomId)
+                          );
+                          const uniqueValidBomsCount = supplierBoms.reduce((acc, bom) => {
+                            if (!acc.includes(bom.bomId)) {
+                              acc.push(bom.bomId);
+                            }
+                            return acc;
+                          }, [] as string[]).length;
+                          
+                          return (
+                            <Table.Tr key={supplier.id}>
+                              <Table.Td>{supplier.name}</Table.Td>
+                              <Table.Td>{supplier.email}</Table.Td>
+                              <Table.Td>{supplier.phone}</Table.Td>
+                              <Table.Td>{supplier.address}</Table.Td>
+                              <Table.Td>
+                                <Group gap="8px">
+                                  <Button
+                                    onClick={() => {
+                                      setSelectedSupplier(supplier);
+                                      setShowBOMDrawer(true);
+                                    }}
+                                    size="xs"
+                                    style={{
+                                      backgroundColor: "#007bff",
+                                      color: "#fff",
+                                      fontSize: "10px",
+                                    }}
+                                  >
+                                    BOM ({uniqueValidBomsCount})
+                                  </Button>
+                                  <Button
+                                    onClick={() => editSupplier(supplier)}
+                                    size="xs"
+                                    style={{
+                                      backgroundColor: "#28a745",
+                                      color: "#fff",
+                                      fontSize: "10px",
+                                    }}
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      const confirmDelete = window.confirm(
+                                        `Are you sure you want to delete supplier "${supplier.name}"? This action cannot be undone.`
+                                      );
+                                      if (confirmDelete) {
+                                        deleteSupplier(supplier.id);
+                                      }
+                                    }}
+                                    size="xs"
+                                    style={{
+                                      backgroundColor: "#ff6b6b",
+                                      color: "#fff",
+                                      fontSize: "10px",
+                                    }}
+                                  >
+                                    Delete
+                                  </Button>
+                                </Group>
+                              </Table.Td>
+                            </Table.Tr>
+                          );
+                        })}
+                      </Table.Tbody>
+                    </Table>
+                  )}
+                </Box>
+              </Tabs.Panel>
+            </Tabs>
+          </Box>
+        </Box>
+        
+        {/* BOM View/Approval Modal */}
+        <Modal
+          opened={showApprovalModal}
+          onClose={() => {
+            setShowApprovalModal(false);
+            setSelectedPO(null);
+          }}
+          title="BOM Details"
+          size="95%"
+          styles={{
+            content: { maxWidth: "95vw", width: "1400px", maxHeight: "90vh" },
+            body: { padding: 0 },
+            header: { borderBottom: "1px solid #e9ecef", paddingBottom: "16px", fontSize: "18px", fontWeight: "600" },
+          }}
+        >
+          {selectedPO && (
+            <BOMDetailsView 
+              bom={selectedPO}
+              bomRates={bomRates}
+              onClose={() => {
+                setShowApprovalModal(false);
+                setSelectedPO(null);
+              }}
+            />
+          )}
+        </Modal>
+
+        {/* Send to Suppliers Modal */}
+        <Modal
+          opened={showSendModal}
+          onClose={() => {
+            setShowSendModal(false);
+            setSelectedPO(null);
+          }}
+          title="Send BOM to Suppliers"
+          size="lg"
+        >
+          {selectedPO && (
+            <Box>
+              <Text style={{ fontWeight: "600", marginBottom: "15px", fontSize: "14px", fontFamily: "Poppins, sans-serif" }}>
+                {selectedPO.poNumber}
+              </Text>
+              
+              {selectedPO.suppliers && selectedPO.suppliers.length > 0 ? (
+                <>
+                  <Text style={{ marginBottom: "15px", fontSize: "12px", fontFamily: "Poppins, sans-serif" }}>
+                    Send this BOM to the following suppliers via WhatsApp:
+                  </Text>
+                  
+                  <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    {selectedPO.suppliers.map((supplier) => {
+                      const alreadySent = bomSends.some(send => send.bomId === selectedPO.id && send.supplierId === supplier.id);
+                      
+                      return (
+                        <Box
+                          key={supplier.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "12px",
+                            backgroundColor: "#f9f9f9",
+                            borderRadius: "6px",
+                            border: "1px solid #e0e0e0",
+                          }}
+                        >
+                          <div>
+                            <Text style={{ fontSize: "12px", fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+                              {supplier.name}
+                            </Text>
+                            <Text style={{ fontSize: "11px", color: "#666", fontFamily: "Poppins, sans-serif" }}>
+                              {supplier.phone} • {supplier.email}
+                            </Text>
+                            {alreadySent && (
+                              <Text style={{ fontSize: "10px", color: "#28a745", fontFamily: "Poppins, sans-serif", marginTop: "2px" }}>
+                                ✓ Already sent
+                              </Text>
+                            )}
+                          </div>
+                          <a
+                            href={generateWhatsAppLink(supplier, selectedPO)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ textDecoration: "none" }}
+                            onClick={() => trackBOMSend(supplier, selectedPO)}
+                          >
+                            <Button
+                              size="xs"
+                              style={{
+                                backgroundColor: "#25d366",
+                                color: "#fff",
+                                fontFamily: "Poppins, sans-serif",
+                                fontSize: "11px",
+                                padding: "6px 12px",
+                              }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: "4px" }}>
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.67-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.076 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421-7.403h-.004a9.87 9.87 0 00-4.946 1.347l-.355.192-.368-.06a9.879 9.879 0 00-3.464.608l.564 2.173 1.888-.959a9.877 9.877 0 018.368 1.215l.341-.292a9.87 9.87 0 013.101-1.61l-.667-2.633-.365.06a9.864 9.864 0 00-3.1-.608zM12 0C5.383 0 0 5.383 0 12s5.383 12 12 12 12-5.383 12-12S18.617 0 12 0z" />
+                              </svg>
+                              {alreadySent ? "Resend" : "Send"}
+                            </Button>
+                          </a>
+                        </Box>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <Box style={{ textAlign: "center", padding: "40px 0" }}>
+                  <Text style={{ color: "#666", fontFamily: "Poppins, sans-serif", marginBottom: "12px" }}>
+                    No suppliers assigned to this BOM
+                  </Text>
+                  <Text style={{ color: "#999", fontSize: "12px", fontFamily: "Poppins, sans-serif" }}>
+                    Edit the BOM to add suppliers before sending
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          )}
+        </Modal>
+
+        {/* BOM Form Drawer */}
+        <Drawer
+          opened={showForm}
+          onClose={() => setShowForm(false)}
+          title="Create Bill of Material"
+          position="right"
+          size="70%"
+          styles={{
+            content: {
+              backgroundColor: "#fff",
+            },
+            header: {
+              fontFamily: "Poppins, sans-serif",
+              fontSize: "18px",
+              fontWeight: "600",
+              borderBottom: "1px solid #e0e0e0",
+              paddingBottom: "15px",
+            },
+          }}
+        >
+          <Box style={{ padding: "20px", display: "flex", gap: "30px", height: "100%" }}>
+            {/* Left Side - Form */}
+            <Box style={{ flex: 1, overflowY: "auto", paddingRight: "20px" }}>
+              {/* Delivery Date & Payment Terms */}
+              <Group style={{ marginBottom: "20px", gap: "12px" }}>
+                <Box style={{ flex: 1 }}>
+                  <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                    Delivery Date <span style={{ color: "#ff6b6b" }}>*</span>
+                  </Text>
+                  <Input
+                    type="date"
+                    value={deliveryDate}
+                    onChange={(e) => setDeliveryDate(e.currentTarget.value)}
+                    style={{
+                      fontFamily: "Poppins, sans-serif",
+                      fontSize: "13px",
+                      backgroundColor: "#f5f5f5",
+                      border: "1px solid #e0e0e0",
+                      borderRadius: "4px",
+                      padding: "8px 12px",
+                    }}
+                  />
+                </Box>
+                <Box style={{ flex: 1 }}>
+                  <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                    Payment Terms <span style={{ color: "#ff6b6b" }}>*</span>
+                  </Text>
+                  <Select
+                    placeholder="Select"
+                    data={paymentTerms}
+                    value={paymentTerm}
+                    onChange={setPaymentTerm}
+                    style={{ fontFamily: "Poppins, sans-serif" }}
+                    styles={{
+                      input: {
+                        fontFamily: "Poppins, sans-serif",
+                        fontSize: "13px",
+                        backgroundColor: "#f5f5f5",
+                        border: "1px solid #e0e0e0",
+                        borderRadius: "4px",
+                        padding: "8px 12px",
+                      },
+                    }}
+                  />
+                </Box>
+              </Group>
+
+              {/* Notes */}
+              <Box style={{ marginBottom: "20px" }}>
+                <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                  Notes
+                </Text>
+                <Textarea
+                  placeholder="Add notes..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.currentTarget.value)}
+                  style={{
+                    fontFamily: "Poppins, sans-serif",
+                    fontSize: "13px",
+                    backgroundColor: "#f5f5f5",
+                    border: "1px solid #e0e0e0",
+                    borderRadius: "4px",
+                    padding: "8px 12px",
+                  }}
+                  rows={2}
+                />
+              </Box>
+
+              {/* Send to Suppliers Section */}
+              <Box style={{ marginBottom: "20px", padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px", border: "1px solid #e9ecef" }}>
+                <Text style={{ fontSize: "13px", fontWeight: "600", marginBottom: "12px", fontFamily: "Poppins, sans-serif", color: "#495057" }}>
+                  Send to Suppliers
+                </Text>
+                <Group style={{ marginBottom: "12px", gap: "8px" }}>
+                  <Box style={{ flex: 1 }}>
+                    <Select
+                      placeholder="Select supplier to add"
+                      data={suppliers.map((s) => ({ value: s.id, label: `${s.name} (${s.email})` }))}
+                      value={selectedSupplierDropdown}
+                      onChange={setSelectedSupplierDropdown}
+                      style={{ fontFamily: "Poppins, sans-serif" }}
+                      styles={{
+                        input: {
+                          fontFamily: "Poppins, sans-serif",
+                          fontSize: "13px",
+                          backgroundColor: "#fff",
+                          border: "1px solid #e0e0e0",
+                          borderRadius: "4px",
+                          padding: "8px 12px",
+                        },
+                      }}
+                    />
+                  </Box>
+                  <Button
+                    onClick={addSupplierToPO}
+                    style={{
+                      backgroundColor: "#007bff",
+                      color: "#fff",
+                      fontFamily: "Poppins, sans-serif",
+                      fontSize: "12px",
+                      padding: "8px 16px",
+                    }}
+                    size="xs"
+                  >
+                    Add
+                  </Button>
+                </Group>
+
+                {selectedSuppliersForPO.length > 0 && (
+                  <Box style={{ marginBottom: "12px" }}>
+                    <Text style={{ fontSize: "11px", fontWeight: "600", marginBottom: "8px", fontFamily: "Poppins, sans-serif", color: "#495057" }}>
+                      Selected Suppliers:
+                    </Text>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {selectedSuppliersForPO.map((supplier) => (
+                        <Box
+                          key={supplier.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "8px 12px",
+                            backgroundColor: "#fff",
+                            borderRadius: "6px",
+                            border: "1px solid #e0e0e0",
+                            fontSize: "12px",
+                          }}
+                        >
+                          <div>
+                            <Text style={{ fontFamily: "Poppins, sans-serif", fontWeight: "500", fontSize: "12px", margin: 0 }}>
+                              {supplier.name}
+                            </Text>
+                            <Text style={{ fontFamily: "Poppins, sans-serif", fontSize: "10px", color: "#666", margin: 0 }}>
+                              {supplier.email} • {supplier.phone}
+                            </Text>
+                          </div>
+                          <Button
+                            onClick={() => removeSupplierFromPO(supplier.id)}
+                            size="xs"
+                            style={{
+                              backgroundColor: "transparent",
+                              color: "#ff6b6b",
+                              border: "none",
+                              padding: "4px 8px",
+                              fontSize: "14px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            ×
+                          </Button>
+                        </Box>
+                      ))}
+                    </div>
+                  </Box>
+                )}
+              </Box>
+
+              {/* Add Items Section */}
+              <Box style={{ padding: "16px", backgroundColor: "#f0f8ff", borderRadius: "8px", border: "1px solid #b3d9ff" }}>
+                <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "15px", fontFamily: "Poppins, sans-serif", color: "#0056b3" }}>
+                  Add Items
+                </Text>
+
+                {/* Item Name & Type */}
+                <Group style={{ marginBottom: "12px", gap: "12px" }}>
+                  <Box style={{ flex: 1 }}>
+                    <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                      Item Name <span style={{ color: "#ff6b6b" }}>*</span>
+                    </Text>
+                    <Input
+                      placeholder="Enter item name"
+                      value={itemName}
+                      onChange={(e) => setItemName(e.currentTarget.value)}
+                      style={{
+                        fontFamily: "Poppins, sans-serif",
+                        fontSize: "13px",
+                        backgroundColor: "#fff",
+                        border: "1px solid #b3d9ff",
+                        borderRadius: "4px",
+                        padding: "8px 12px",
+                      }}
+                    />
+                  </Box>
+                  <Box style={{ flex: 1 }}>
+                    <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                      Type <span style={{ color: "#ff6b6b" }}>*</span>
+                    </Text>
+                    <Select
+                      placeholder="Select type"
+                      data={itemTypes}
+                      value={itemType}
+                      onChange={setItemType}
+                      style={{ fontFamily: "Poppins, sans-serif" }}
+                      styles={{
+                        input: {
+                          fontFamily: "Poppins, sans-serif",
+                          fontSize: "13px",
+                          backgroundColor: "#fff",
+                          border: "1px solid #b3d9ff",
+                          borderRadius: "4px",
+                          padding: "8px 12px",
+                        },
+                      }}
+                    />
+                  </Box>
+                </Group>
+
+                {/* Quantity & Unit */}
+                <Group style={{ marginBottom: "12px", gap: "12px" }}>
+                  <Box style={{ flex: 0.6 }}>
+                    <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                      Qty <span style={{ color: "#ff6b6b" }}>*</span>
+                    </Text>
+                    <NumberInput
+                      placeholder="0"
+                      value={quantity}
+                      onChange={setQuantity}
+                      style={{
+                        fontFamily: "Poppins, sans-serif",
+                        fontSize: "13px",
+                      }}
+                      styles={{
+                        input: {
+                          backgroundColor: "#fff",
+                          border: "1px solid #b3d9ff",
+                          borderRadius: "4px",
+                          padding: "8px 12px",
+                        },
+                      }}
+                    />
+                  </Box>
+                  <Box style={{ flex: 0.7 }}>
+                    <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                      Unit <span style={{ color: "#ff6b6b" }}>*</span>
+                    </Text>
+                    <Select
+                      placeholder="Select"
+                      data={units}
+                      value={unit}
+                      onChange={setUnit}
+                      style={{ fontFamily: "Poppins, sans-serif" }}
+                      styles={{
+                        input: {
+                          fontFamily: "Poppins, sans-serif",
+                          fontSize: "13px",
+                          backgroundColor: "#fff",
+                          border: "1px solid #b3d9ff",
+                          borderRadius: "4px",
+                          padding: "8px 12px",
+                        },
+                      }}
+                    />
+                  </Box>
+                </Group>
+
+                {/* Description */}
+                <Box style={{ marginBottom: "12px" }}>
+                  <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                    Description
+                  </Text>
+                  <Textarea
+                    placeholder="Add description..."
+                    value={description}
+                    onChange={(e) => setDescription(e.currentTarget.value)}
+                    style={{
+                      fontFamily: "Poppins, sans-serif",
+                      fontSize: "13px",
+                      backgroundColor: "#fff",
+                      border: "1px solid #b3d9ff",
+                      borderRadius: "4px",
+                      padding: "8px 12px",
+                    }}
+                    rows={2}
+                  />
+                </Box>
+
+                {/* Add Item Button */}
+                <Button
+                  onClick={addItem}
+                  style={{
+                    backgroundColor: "#0056b3",
+                    color: "#fff",
+                    fontFamily: "Poppins, sans-serif",
+                    marginBottom: "0px",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                  }}
+                  fullWidth
+                >
+                  Add Item
+                </Button>
+              </Box>
+            </Box>
+
+            {/* Divider */}
+            <Box style={{ width: "1px", backgroundColor: "#e0e0e0", margin: "0 10px" }} />
+
+            {/* Right Side - Items List */}
+            <Box style={{ flex: 1, overflowY: "auto", paddingLeft: "20px" }}>
+              <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "15px", fontFamily: "Poppins, sans-serif" }}>
+                Items ({items.length})
+              </Text>
+
+              {items.length === 0 ? (
+                <Box style={{ textAlign: "center", padding: "40px 0", backgroundColor: "#f8f9fa", borderRadius: "8px", border: "2px dashed #dee2e6" }}>
+                  <Text style={{ fontSize: "14px", color: "#6c757d", fontFamily: "Poppins, sans-serif", marginBottom: "8px" }}>
+                    No items added yet
+                  </Text>
+                  <Text style={{ fontSize: "12px", color: "#999", fontFamily: "Poppins, sans-serif" }}>
+                    Add items using the form on the left
+                  </Text>
+                </Box>
+              ) : (
+                <Box style={{ overflowX: "auto" }}>
+                  <Table striped>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th style={{ fontSize: "11px" }}>Item</Table.Th>
+                        <Table.Th style={{ fontSize: "11px" }}>Type</Table.Th>
+                        <Table.Th style={{ fontSize: "11px" }}>Qty</Table.Th>
+                        <Table.Th style={{ fontSize: "11px" }}>Unit</Table.Th>
+                        <Table.Th style={{ fontSize: "11px" }}>Action</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {items.map((item) => (
+                        <Table.Tr key={item.id}>
+                          <Table.Td style={{ fontSize: "11px", fontWeight: "500" }}>{item.itemName}</Table.Td>
+                          <Table.Td style={{ fontSize: "10px", color: "#666" }}>{item.itemType}</Table.Td>
+                          <Table.Td style={{ fontSize: "11px" }}>{item.quantity}</Table.Td>
+                          <Table.Td style={{ fontSize: "11px" }}>{item.unit}</Table.Td>
+                          <Table.Td>
+                            <Button
+                              onClick={() => removeItem(item.id)}
+                              size="xs"
+                              style={{
+                                backgroundColor: "#ff6b6b",
+                                color: "#fff",
+                                fontSize: "10px",
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+
+                  <Button
+                    onClick={submitPO}
+                    disabled={items.length === 0}
+                    style={{
+                      backgroundColor: items.length === 0 ? "#ccc" : "#28a745",
+                      color: "#fff",
+                      fontFamily: "Poppins, sans-serif",
+                      marginTop: "15px",
+                      fontSize: "12px",
+                      cursor: items.length === 0 ? "not-allowed" : "pointer",
+                    }}
+                    size="xs"
+                    fullWidth
+                  >
+                    Submit for Approval
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        </Drawer>
+
+        {/* BOM Drawer */}
+        {showBOMDrawer && selectedSupplier && (
+          <SimpleBOMDrawer
+            supplier={selectedSupplier}
+            boms={bomSends.filter((bom) => bom.supplierId === selectedSupplier.id)}
+            bomRates={bomRates}
+            orders={orders}
+            onClose={() => {
+              setShowBOMDrawer(false);
+              setSelectedSupplier(null);
+            }}
+          />
+        )}
+
+        {/* Compare Rates Modal */}
+        <Modal
+          opened={showCompareModal}
+          onClose={() => setShowCompareModal(false)}
+          title="Compare BOM Rates"
+          size="95%"
+          styles={{
+            content: { maxWidth: "95vw", width: "1400px", maxHeight: "90vh" },
+            body: { padding: 0 },
+            header: { borderBottom: "1px solid #e9ecef", paddingBottom: "16px" },
+          }}
+        >
+          <CompareRatesView 
+            bomRates={bomRates}
+            orders={orders}
+            onClose={() => setShowCompareModal(false)}
+          />
+        </Modal>
+
+        {/* Supplier Edit Form */}
+        <Drawer
+          opened={showSupplierForm}
+          onClose={() => {
+            setShowSupplierForm(false);
+            setEditingSupplier(null);
+            setSupplierName("");
+            setSupplierEmail("");
+            setSupplierPhone("");
+            setSupplierAddress("");
+          }}
+          title={editingSupplier ? "Edit Supplier" : "Add New Supplier"}
+          position="right"
+          size="50%"
+        >
+          <Box style={{ padding: "20px" }}>
+            <Group style={{ marginBottom: "15px", gap: "12px" }}>
+              <Box style={{ flex: 1 }}>
+                <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                  Supplier Name
+                </Text>
+                <Input
+                  placeholder="Enter supplier name"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.currentTarget.value)}
+                  style={{ fontFamily: "Poppins, sans-serif", fontSize: "13px" }}
+                />
+              </Box>
+            </Group>
+
+            <Group style={{ marginBottom: "15px", gap: "12px" }}>
+              <Box style={{ flex: 1 }}>
+                <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                  Email
+                </Text>
+                <Input
+                  placeholder="Enter email"
+                  value={supplierEmail}
+                  onChange={(e) => setSupplierEmail(e.currentTarget.value)}
+                  style={{ fontFamily: "Poppins, sans-serif", fontSize: "13px" }}
+                />
+              </Box>
+            </Group>
+
+            <Group style={{ marginBottom: "15px", gap: "12px" }}>
+              <Box style={{ flex: 1 }}>
+                <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                  Phone
+                </Text>
+                <Input
+                  placeholder="Enter phone"
+                  value={supplierPhone}
+                  onChange={(e) => setSupplierPhone(e.currentTarget.value)}
+                  style={{ fontFamily: "Poppins, sans-serif", fontSize: "13px" }}
+                />
+              </Box>
+            </Group>
+
+            <Group style={{ marginBottom: "15px", gap: "12px" }}>
+              <Box style={{ flex: 1 }}>
+                <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+                  Address
+                </Text>
+                <Input
+                  placeholder="Enter address"
+                  value={supplierAddress}
+                  onChange={(e) => setSupplierAddress(e.currentTarget.value)}
+                  style={{ fontFamily: "Poppins, sans-serif", fontSize: "13px" }}
+                />
+              </Box>
+            </Group>
+
+            <Button
+              onClick={async () => {
+                if (!supplierName || !supplierEmail || !supplierPhone) {
+                  alert("Please fill all required fields");
+                  return;
+                }
+                
+                if (editingSupplier) {
+                  await fetch("/api/suppliers", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      id: editingSupplier.id,
+                      name: supplierName,
+                      email: supplierEmail,
+                      phone: supplierPhone,
+                      address: supplierAddress,
+                    }),
+                  });
+                }
+                
+                setEditingSupplier(null);
+                setSupplierName("");
+                setSupplierEmail("");
+                setSupplierPhone("");
+                setSupplierAddress("");
+                setShowSupplierForm(false);
+                fetchSuppliers();
+              }}
+              style={{
+                backgroundColor: "#007bff",
+                color: "#fff",
+                fontFamily: "Poppins, sans-serif",
+                fontSize: "12px",
+              }}
+              size="xs"
+              fullWidth
+            >
+              {editingSupplier ? "Update Supplier" : "Add Supplier"}
+            </Button>
+          </Box>
+        </Drawer>
+        
+        <LogoutButton />
+      </Box>
+    </ProtectedRoute>
+  );
+}
+
+function QuoteForm({
+  bom,
+  supplier,
+  quoteData,
+  setQuoteData,
+  onSubmit,
+  onCancel,
+  isViewOnly = false,
+}: {
+  bom: any;
+  supplier: Supplier;
+  quoteData: {[key: string]: any};
+  setQuoteData: (data: {[key: string]: any}) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  isViewOnly?: boolean;
+}) {
+  const handleInputChange = (field: string, value: string) => {
+    setQuoteData({
+      ...quoteData,
+      [field]: value,
+    });
+  };
+
+  const calculateItemTotal = (item: any) => {
+    const unitPrice = parseFloat(quoteData[`item_${item.id}_unitPrice`]) || 0;
+    return unitPrice * item.quantity;
+  };
+
+  const calculateSubtotal = () => {
+    return bom.items.reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+  };
+
+  const calculateGrandTotal = () => {
+    const subtotal = calculateSubtotal();
+    const transport = parseFloat(quoteData.transportCost) || 0;
+    const tax = parseFloat(quoteData.tax) || 0;
+    return subtotal + transport + tax;
+  };
+
+  return (
+    <Box style={{ padding: "20px", maxHeight: "70vh", overflowY: "auto" }}>
+      {/* Items Section */}
+      <Box style={{ marginBottom: "24px" }}>
+        <Text style={{ fontSize: "16px", fontWeight: "600", marginBottom: "16px", fontFamily: "Poppins, sans-serif" }}>
+          Items Breakdown
+        </Text>
+        
+        <Table striped>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th style={{ fontSize: "12px" }}>Item Name</Table.Th>
+              <Table.Th style={{ fontSize: "12px" }}>Type</Table.Th>
+              <Table.Th style={{ fontSize: "12px" }}>Quantity</Table.Th>
+              <Table.Th style={{ fontSize: "12px" }}>Unit</Table.Th>
+              <Table.Th style={{ fontSize: "12px" }}>Unit Price (PKR)</Table.Th>
+              <Table.Th style={{ fontSize: "12px" }}>Total (PKR)</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {bom.items.map((item: any) => (
+              <Table.Tr key={item.id}>
+                <Table.Td style={{ fontSize: "11px", fontWeight: "500" }}>{item.itemName}</Table.Td>
+                <Table.Td style={{ fontSize: "10px", color: "#666" }}>{item.itemType}</Table.Td>
+                <Table.Td style={{ fontSize: "11px" }}>{item.quantity}</Table.Td>
+                <Table.Td style={{ fontSize: "11px" }}>{item.unit}</Table.Td>
+                <Table.Td>
+                  <NumberInput
+                    value={quoteData[`item_${item.id}_unitPrice`] || ""}
+                    onChange={(value) => handleInputChange(`item_${item.id}_unitPrice`, value?.toString() || "")}
+                    placeholder="0.00"
+                    disabled={isViewOnly}
+                    size="xs"
+                    styles={{
+                      input: {
+                        fontSize: "11px",
+                        padding: "4px 8px",
+                        backgroundColor: isViewOnly ? "#f5f5f5" : "#fff",
+                        border: "1px solid #e0e0e0",
+                      },
+                    }}
+                  />
+                </Table.Td>
+                <Table.Td style={{ fontSize: "11px", fontWeight: "500" }}>
+                  {calculateItemTotal(item).toFixed(2)}
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+
+        <Box style={{ 
+          marginTop: "12px", 
+          padding: "12px", 
+          backgroundColor: "#f8f9fa", 
+          borderRadius: "6px",
+          textAlign: "right"
+        }}>
+          <Text style={{ fontSize: "12px", fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+            Items Subtotal: PKR {calculateSubtotal().toFixed(2)}
+          </Text>
+        </Box>
+      </Box>
+
+      {/* Additional Costs */}
+      <Box style={{ marginBottom: "24px" }}>
+        <Text style={{ fontSize: "16px", fontWeight: "600", marginBottom: "16px", fontFamily: "Poppins, sans-serif" }}>
+          Additional Costs
+        </Text>
+        
+        <Group style={{ marginBottom: "12px", gap: "16px" }}>
+          <Box style={{ flex: 1 }}>
+            <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+              Transport Cost (PKR)
+            </Text>
+            <NumberInput
+              value={quoteData.transportCost || ""}
+              onChange={(value) => handleInputChange("transportCost", value?.toString() || "")}
+              placeholder="0.00"
+              disabled={isViewOnly}
+              styles={{
+                input: {
+                  fontSize: "13px",
+                  backgroundColor: isViewOnly ? "#f5f5f5" : "#fff",
+                  border: "1px solid #e0e0e0",
+                },
+              }}
+            />
+          </Box>
+          <Box style={{ flex: 1 }}>
+            <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+              Tax (PKR)
+            </Text>
+            <NumberInput
+              value={quoteData.tax || ""}
+              onChange={(value) => handleInputChange("tax", value?.toString() || "")}
+              placeholder="0.00"
+              disabled={isViewOnly}
+              styles={{
+                input: {
+                  fontSize: "13px",
+                  backgroundColor: isViewOnly ? "#f5f5f5" : "#fff",
+                  border: "1px solid #e0e0e0",
+                },
+              }}
+            />
+          </Box>
+        </Group>
+      </Box>
+
+      {/* Quote Details */}
+      <Box style={{ marginBottom: "24px" }}>
+        <Text style={{ fontSize: "16px", fontWeight: "600", marginBottom: "16px", fontFamily: "Poppins, sans-serif" }}>
+          Quote Details
+        </Text>
+        
+        <Group style={{ marginBottom: "12px", gap: "16px" }}>
+          <Box style={{ flex: 1 }}>
+            <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+              Valid Until
+            </Text>
+            <Input
+              type="date"
+              value={quoteData.validUntil || ""}
+              onChange={(e) => handleInputChange("validUntil", e.currentTarget.value)}
+              disabled={isViewOnly}
+              style={{
+                fontSize: "13px",
+                backgroundColor: isViewOnly ? "#f5f5f5" : "#fff",
+                border: "1px solid #e0e0e0",
+              }}
+            />
+          </Box>
+        </Group>
+
+        <Box style={{ marginBottom: "12px" }}>
+          <Text style={{ fontSize: "12px", fontWeight: "500", marginBottom: "6px", fontFamily: "Poppins, sans-serif" }}>
+            Notes
+          </Text>
+          <Textarea
+            value={quoteData.notes || ""}
+            onChange={(e) => handleInputChange("notes", e.currentTarget.value)}
+            placeholder="Add any notes about your quote..."
+            disabled={isViewOnly}
+            rows={3}
+            style={{
+              fontSize: "13px",
+              backgroundColor: isViewOnly ? "#f5f5f5" : "#fff",
+              border: "1px solid #e0e0e0",
+            }}
+          />
+        </Box>
+      </Box>
+
+      {/* Total Summary */}
+      <Box style={{ 
+        padding: "16px", 
+        backgroundColor: "#e3f2fd", 
+        borderRadius: "8px",
+        border: "1px solid #90caf9",
+        marginBottom: "24px"
+      }}>
+        <Text style={{ fontSize: "18px", fontWeight: "700", color: "#1565c0", fontFamily: "Poppins, sans-serif" }}>
+          Grand Total: PKR {calculateGrandTotal().toFixed(2)}
+        </Text>
+        <Text style={{ fontSize: "12px", color: "#1976d2", fontFamily: "Poppins, sans-serif", marginTop: "4px" }}>
+          Items: {calculateSubtotal().toFixed(2)} + Transport: {(parseFloat(quoteData.transportCost) || 0).toFixed(2)} + Tax: {(parseFloat(quoteData.tax) || 0).toFixed(2)}
+        </Text>
+      </Box>
+
+      {/* Action Buttons */}
+      <Group style={{ justifyContent: "flex-end", gap: "12px" }}>
+        <Button
+          onClick={onCancel}
+          style={{
+            backgroundColor: "transparent",
+            color: "#666",
+            border: "1px solid #e0e0e0",
+            fontFamily: "Poppins, sans-serif",
+            fontSize: "12px",
+          }}
+        >
+          {isViewOnly ? "Close" : "Cancel"}
+        </Button>
+        {!isViewOnly && (
+          <Button
+            onClick={onSubmit}
+            style={{
+              backgroundColor: "#28a745",
+              color: "#fff",
+              fontFamily: "Poppins, sans-serif",
+              fontSize: "12px",
+            }}
+          >
+            Submit Quote
+          </Button>
+        )}
+      </Group>
+    </Box>
+  );
+}
+
+function BOMDetailsView({
+  bom,
+  bomRates,
+  onClose,
+}: {
+  bom: PurchaseOrder;
+  bomRates: any[];
+  onClose: () => void;
+}) {
+  const [isSentToFinance, setIsSentToFinance] = useState(false);
+  
+  // Get all rates for this BOM
+  const bomQuotes = bomRates.filter(rate => rate.bomId === bom.id);
+  const bestQuote = bomQuotes.length > 0 ? bomQuotes.sort((a, b) => a.totalAmount - b.totalAmount)[0] : null;
+
+  // Check if BOM is already sent to finance
+  useEffect(() => {
+    const checkFinanceStatus = async () => {
+      try {
+        const res = await fetch('/api/finance/bom-invoices');
+        const invoices = await res.json();
+        const existingInvoice = invoices.find((invoice: any) => invoice.bomId === bom.id);
+        setIsSentToFinance(!!existingInvoice);
+      } catch (error) {
+        console.error('Error checking finance status:', error);
+      }
+    };
+    
+    checkFinanceStatus();
+  }, [bom.id]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "draft": return "gray";
+      case "pending_approval": return "yellow";
+      case "approved": return "green";
+      case "rejected": return "red";
+      case "sent_to_supplier": return "blue";
+      case "sent_to_finance": return "purple";
+      case "completed": return "teal";
+      default: return "gray";
+    }
+  };
+
+  return (
+    <div style={{ height: "85vh", display: "flex", flexDirection: "column" }}>
+      {/* Header Section */}
+      <div style={{ 
+        padding: "32px", 
+        backgroundColor: "#f8f9fa", 
+        borderBottom: "1px solid #e9ecef"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }}>
+          <div style={{ flex: 1 }}>
+            <Text style={{ 
+              fontSize: "32px", 
+              fontWeight: "700", 
+              color: "#212529",
+              fontFamily: "Poppins, sans-serif",
+              marginBottom: "12px"
+            }}>
+              {bom.poNumber}
+            </Text>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "32px", maxWidth: "800px" }}>
+              <div>
+                <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Created By
+                </Text>
+                <Text style={{ fontSize: "16px", fontWeight: "600", color: "#495057", fontFamily: "Poppins, sans-serif", marginTop: "4px" }}>
+                  {bom.createdBy}
+                </Text>
+              </div>
+              <div>
+                <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Delivery Date
+                </Text>
+                <Text style={{ fontSize: "16px", fontWeight: "600", color: "#495057", fontFamily: "Poppins, sans-serif", marginTop: "4px" }}>
+                  {new Date(bom.deliveryDate).toLocaleDateString()}
+                </Text>
+              </div>
+              <div>
+                <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Status
+                </Text>
+                <Badge color={getStatusColor(bom.status)} style={{ marginTop: "6px", fontSize: "12px", padding: "6px 12px" }}>
+                  {bom.status.replace(/_/g, " ")}
+                </Badge>
+              </div>
+              <div>
+                <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Items Count
+                </Text>
+                <Text style={{ fontSize: "16px", fontWeight: "600", color: "#495057", fontFamily: "Poppins, sans-serif", marginTop: "4px" }}>
+                  {bom.items.length} Items
+                </Text>
+              </div>
+            </div>
+          </div>
+          
+          {bomQuotes.length > 0 && (
+            <div style={{ 
+              padding: "24px", 
+              backgroundColor: "#e8f5e8", 
+              borderRadius: "12px",
+              border: "2px solid #c3e6c3",
+              textAlign: "center",
+              minWidth: "200px"
+            }}>
+              <Text style={{ fontSize: "14px", color: "#155724", fontFamily: "Poppins, sans-serif", marginBottom: "8px" }}>
+                {bomQuotes.length} Quote{bomQuotes.length > 1 ? 's' : ''} Received
+              </Text>
+              <Text style={{ fontSize: "24px", fontWeight: "700", color: "#155724", fontFamily: "Poppins, sans-serif" }}>
+                Best: PKR {bestQuote?.totalAmount.toLocaleString()}
+              </Text>
+              <Text style={{ fontSize: "12px", color: "#155724", fontFamily: "Poppins, sans-serif", marginTop: "4px" }}>
+                by {bestQuote?.supplierName}
+              </Text>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "32px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "40px", height: "100%" }}>
+          
+          {/* Left Column - Items */}
+          <div>
+            <Text style={{ 
+              fontSize: "20px", 
+              fontWeight: "600", 
+              marginBottom: "20px", 
+              fontFamily: "Poppins, sans-serif",
+              color: "#212529"
+            }}>
+              Items ({bom.items.length})
+            </Text>
+            
+            <div style={{ 
+              backgroundColor: "#fff", 
+              border: "1px solid #e9ecef", 
+              borderRadius: "12px",
+              overflow: "hidden",
+              height: "fit-content"
+            }}>
+              <Table>
+                <Table.Thead style={{ backgroundColor: "#f8f9fa" }}>
+                  <Table.Tr>
+                    <Table.Th style={{ fontSize: "14px", fontWeight: "600", padding: "16px" }}>Item Name</Table.Th>
+                    <Table.Th style={{ fontSize: "14px", fontWeight: "600", padding: "16px" }}>Type</Table.Th>
+                    <Table.Th style={{ fontSize: "14px", fontWeight: "600", padding: "16px" }}>Quantity</Table.Th>
+                    <Table.Th style={{ fontSize: "14px", fontWeight: "600", padding: "16px" }}>Unit</Table.Th>
+                    {bestQuote && (
+                      <Table.Th style={{ fontSize: "14px", fontWeight: "600", padding: "16px", textAlign: "center" }}>
+                        Best Quote Price
+                      </Table.Th>
+                    )}
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {bom.items.map((item) => {
+                    const itemRate = bestQuote?.itemRates?.[item.id];
+                    return (
+                      <Table.Tr key={item.id}>
+                        <Table.Td style={{ fontSize: "15px", fontWeight: "500", padding: "16px" }}>
+                          {item.itemName}
+                        </Table.Td>
+                        <Table.Td style={{ fontSize: "14px", color: "#6c757d", padding: "16px" }}>
+                          {item.itemType}
+                        </Table.Td>
+                        <Table.Td style={{ fontSize: "15px", padding: "16px" }}>
+                          {item.quantity}
+                        </Table.Td>
+                        <Table.Td style={{ fontSize: "15px", padding: "16px" }}>
+                          {item.unit}
+                        </Table.Td>
+                        {bestQuote && (
+                          <Table.Td style={{ fontSize: "15px", padding: "16px", textAlign: "center" }}>
+                            {itemRate ? (
+                              <div>
+                                <Text style={{ fontSize: "15px", fontWeight: "600", color: "#28a745", fontFamily: "Poppins, sans-serif" }}>
+                                  PKR {itemRate.unitPrice?.toLocaleString()} / {item.unit}
+                                </Text>
+                                <Text style={{ fontSize: "13px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                                  Total: PKR {itemRate.totalPrice?.toLocaleString()}
+                                </Text>
+                              </div>
+                            ) : (
+                              <Text style={{ fontSize: "13px", color: "#999", fontFamily: "Poppins, sans-serif" }}>
+                                No quote
+                              </Text>
+                            )}
+                          </Table.Td>
+                        )}
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            </div>
+          </div>
+
+          {/* Right Column - Suppliers */}
+          <div>
+            <Text style={{ 
+              fontSize: "20px", 
+              fontWeight: "600", 
+              marginBottom: "20px", 
+              fontFamily: "Poppins, sans-serif",
+              color: "#212529"
+            }}>
+              Suppliers & Quotes ({bom.suppliers?.length || 0})
+            </Text>
+            
+            {bom.suppliers && bom.suppliers.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "20px", height: "fit-content" }}>
+                {bom.suppliers.map((supplier) => {
+                  const supplierQuote = bomQuotes.find(quote => quote.supplierId === supplier.id);
+                  const isBestQuote = supplierQuote && supplierQuote.id === bestQuote?.id;
+                  
+                  return (
+                    <div 
+                      key={supplier.id} 
+                      style={{ 
+                        padding: "24px", 
+                        backgroundColor: isBestQuote ? "#f0f8ff" : "#fff",
+                        border: isBestQuote ? "2px solid #007bff" : "1px solid #e9ecef",
+                        borderRadius: "12px",
+                        position: "relative",
+                        boxShadow: isBestQuote ? "0 4px 12px rgba(0,123,255,0.15)" : "0 2px 4px rgba(0,0,0,0.1)"
+                      }}
+                    >
+                      {isBestQuote && (
+                        <div style={{
+                          position: "absolute",
+                          top: "-12px",
+                          left: "24px",
+                          backgroundColor: "#007bff",
+                          color: "white",
+                          padding: "8px 20px",
+                          borderRadius: "20px",
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          fontFamily: "Poppins, sans-serif",
+                          boxShadow: "0 2px 8px rgba(0,123,255,0.3)"
+                        }}>
+                          🏆 BEST QUOTE
+                        </div>
+                      )}
+                      
+                      {/* Supplier Header */}
+                      <div style={{ marginBottom: "20px" }}>
+                        <Text style={{ 
+                          fontSize: "20px", 
+                          fontWeight: "600", 
+                          color: "#212529",
+                          fontFamily: "Poppins, sans-serif",
+                          marginBottom: "12px"
+                        }}>
+                          {supplier.name}
+                        </Text>
+                        
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6c757d" strokeWidth="2">
+                              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                              <polyline points="22,6 12,13 2,6"></polyline>
+                            </svg>
+                            <Text style={{ fontSize: "15px", color: "#495057", fontFamily: "Poppins, sans-serif" }}>
+                              {supplier.email}
+                            </Text>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6c757d" strokeWidth="2">
+                              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                            </svg>
+                            <Text style={{ fontSize: "15px", color: "#495057", fontFamily: "Poppins, sans-serif" }}>
+                              {supplier.phone}
+                            </Text>
+                          </div>
+                        </div>
+
+                        {/* Quote Status */}
+                        {supplierQuote ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+                            <div style={{ 
+                              width: "8px", 
+                              height: "8px", 
+                              borderRadius: "50%", 
+                              backgroundColor: "#28a745" 
+                            }}></div>
+                            <Text style={{ fontSize: "14px", color: "#28a745", fontFamily: "Poppins, sans-serif", fontWeight: "500" }}>
+                              Quote Submitted
+                            </Text>
+                            {supplierQuote.validUntil && (
+                              <Text style={{ fontSize: "13px", color: "#6c757d", fontFamily: "Poppins, sans-serif", marginLeft: "auto" }}>
+                                Valid until: {new Date(supplierQuote.validUntil).toLocaleDateString()}
+                              </Text>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+                            <div style={{ 
+                              width: "8px", 
+                              height: "8px", 
+                              borderRadius: "50%", 
+                              backgroundColor: "#ffc107" 
+                            }}></div>
+                            <Text style={{ fontSize: "14px", color: "#856404", fontFamily: "Poppins, sans-serif", fontWeight: "500" }}>
+                              Awaiting Quote
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+
+                      {supplierQuote ? (
+                        <>
+                          {/* Item-wise Pricing */}
+                          <div style={{ marginBottom: "20px" }}>
+                            <Text style={{ fontSize: "16px", fontWeight: "600", marginBottom: "12px", fontFamily: "Poppins, sans-serif", color: "#212529" }}>
+                              Item Pricing
+                            </Text>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                              {bom.items.map((item) => {
+                                const itemRate = supplierQuote.itemRates?.[item.id];
+                                const unitPrice = itemRate?.unitPrice || 0;
+                                const totalPrice = itemRate?.totalPrice || 0;
+                                
+                                return (
+                                  <div 
+                                    key={item.id}
+                                    style={{ 
+                                      padding: "16px", 
+                                      backgroundColor: isBestQuote ? "#f8fbff" : "#f8f9fa", 
+                                      borderRadius: "8px",
+                                      border: "1px solid #e9ecef"
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                      <div style={{ flex: 1 }}>
+                                        <Text style={{ fontSize: "14px", fontWeight: "600", color: "#212529", fontFamily: "Poppins, sans-serif" }}>
+                                          {item.itemName}
+                                        </Text>
+                                        <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                                          {item.quantity} {item.unit} • {item.itemType}
+                                        </Text>
+                                      </div>
+                                      <div style={{ textAlign: "right" }}>
+                                        {unitPrice > 0 ? (
+                                          <>
+                                            <Text style={{ fontSize: "16px", fontWeight: "600", color: "#28a745", fontFamily: "Poppins, sans-serif" }}>
+                                              PKR {unitPrice.toLocaleString()} / {item.unit}
+                                            </Text>
+                                            <Text style={{ fontSize: "13px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                                              Total: PKR {totalPrice.toLocaleString()}
+                                            </Text>
+                                          </>
+                                        ) : (
+                                          <Text style={{ fontSize: "13px", color: "#999", fontFamily: "Poppins, sans-serif" }}>
+                                            No quote for this item
+                                          </Text>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Cost Summary */}
+                          <div style={{ 
+                            padding: "20px", 
+                            backgroundColor: isBestQuote ? "#e3f2fd" : "#f8f9fa", 
+                            borderRadius: "12px",
+                            border: isBestQuote ? "1px solid #90caf9" : "1px solid #e9ecef",
+                            marginBottom: "16px"
+                          }}>
+                            <Text style={{ fontSize: "16px", fontWeight: "600", marginBottom: "16px", fontFamily: "Poppins, sans-serif", color: "#212529" }}>
+                              Cost Breakdown
+                            </Text>
+                            
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", marginBottom: "12px" }}>
+                              <Text style={{ fontSize: "14px", color: "#495057", fontFamily: "Poppins, sans-serif" }}>Items Subtotal:</Text>
+                              <Text style={{ fontSize: "14px", fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+                                PKR {(supplierQuote.totalAmount - (supplierQuote.transportCost || 0) - (supplierQuote.tax || 0)).toLocaleString()}
+                              </Text>
+                            </div>
+                            
+                            {supplierQuote.transportCost > 0 && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", marginBottom: "12px" }}>
+                                <Text style={{ fontSize: "14px", color: "#495057", fontFamily: "Poppins, sans-serif" }}>Transport Cost:</Text>
+                                <Text style={{ fontSize: "14px", fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+                                  PKR {supplierQuote.transportCost.toLocaleString()}
+                                </Text>
+                              </div>
+                            )}
+                            
+                            {supplierQuote.tax > 0 && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", marginBottom: "12px" }}>
+                                <Text style={{ fontSize: "14px", color: "#495057", fontFamily: "Poppins, sans-serif" }}>Tax:</Text>
+                                <Text style={{ fontSize: "14px", fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+                                  PKR {supplierQuote.tax.toLocaleString()}
+                                </Text>
+                              </div>
+                            )}
+                            
+                            <div style={{ 
+                              paddingTop: "12px", 
+                              borderTop: "2px solid #dee2e6", 
+                              display: "grid", 
+                              gridTemplateColumns: "1fr auto", 
+                              gap: "12px" 
+                            }}>
+                              <Text style={{ fontSize: "18px", fontWeight: "700", color: isBestQuote ? "#007bff" : "#212529", fontFamily: "Poppins, sans-serif" }}>
+                                Total Quote:
+                              </Text>
+                              <Text style={{ fontSize: "20px", fontWeight: "700", color: isBestQuote ? "#007bff" : "#212529", fontFamily: "Poppins, sans-serif" }}>
+                                PKR {supplierQuote.totalAmount.toLocaleString()}
+                              </Text>
+                            </div>
+                            
+                            {bestQuote && supplierQuote.id !== bestQuote.id && (
+                              <div style={{ marginTop: "8px", textAlign: "right" }}>
+                                <Text style={{ fontSize: "12px", color: "#dc3545", fontFamily: "Poppins, sans-serif" }}>
+                                  +PKR {(supplierQuote.totalAmount - bestQuote.totalAmount).toLocaleString()} more than best quote
+                                </Text>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Notes */}
+                          {supplierQuote.notes && (
+                            <div style={{ 
+                              padding: "16px", 
+                              backgroundColor: "#fff3cd", 
+                              borderRadius: "8px",
+                              border: "1px solid #ffeaa7"
+                            }}>
+                              <Text style={{ fontSize: "12px", color: "#856404", fontFamily: "Poppins, sans-serif", fontWeight: "600", marginBottom: "4px" }}>
+                                Supplier Notes:
+                              </Text>
+                              <Text style={{ fontSize: "13px", color: "#856404", fontFamily: "Poppins, sans-serif", fontStyle: "italic" }}>
+                                "{supplierQuote.notes}"
+                              </Text>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div style={{ 
+                          padding: "40px", 
+                          textAlign: "center", 
+                          backgroundColor: "#f8f9fa", 
+                          borderRadius: "12px",
+                          border: "2px dashed #dee2e6"
+                        }}>
+                          <Text style={{ fontSize: "16px", color: "#6c757d", fontFamily: "Poppins, sans-serif", marginBottom: "8px" }}>
+                            No quote submitted yet
+                          </Text>
+                          <Text style={{ fontSize: "14px", color: "#999", fontFamily: "Poppins, sans-serif" }}>
+                            Waiting for supplier to provide pricing
+                          </Text>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ 
+                padding: "40px", 
+                textAlign: "center", 
+                backgroundColor: "#f8f9fa", 
+                borderRadius: "12px",
+                border: "2px dashed #dee2e6"
+              }}>
+                <Text style={{ fontSize: "16px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                  No suppliers assigned to this BOM
+                </Text>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Additional Info */}
+        {bom.notes && (
+          <div style={{ marginTop: "32px", padding: "24px 0", borderTop: "1px solid #e9ecef" }}>
+            <Text style={{ 
+              fontSize: "18px", 
+              fontWeight: "600", 
+              marginBottom: "16px", 
+              fontFamily: "Poppins, sans-serif",
+              color: "#212529"
+            }}>
+              Notes
+            </Text>
+            <div style={{ 
+              padding: "20px", 
+              backgroundColor: "#f8f9fa", 
+              borderRadius: "12px",
+              border: "1px solid #e9ecef"
+            }}>
+              <Text style={{ fontSize: "15px", color: "#495057", fontFamily: "Poppins, sans-serif", lineHeight: "1.6" }}>
+                {bom.notes}
+              </Text>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div style={{ 
+        padding: "24px 32px", 
+        borderTop: "1px solid #e9ecef",
+        backgroundColor: "#f8f9fa",
+        display: "flex", 
+        justifyContent: "space-between",
+        alignItems: "center"
+      }}>
+        <div>
+          {bomQuotes.length > 0 && (
+            <Text style={{ fontSize: "14px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+              {bomQuotes.length} quote{bomQuotes.length > 1 ? 's' : ''} received • Best price: PKR {bestQuote?.totalAmount.toLocaleString()}
+            </Text>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: "12px" }}>
+          <Button
+            onClick={onClose}
+            style={{
+              backgroundColor: "transparent",
+              color: "#6c757d",
+              border: "1px solid #dee2e6",
+              fontFamily: "Poppins, sans-serif",
+              padding: "10px 20px"
+            }}
+          >
+            Close
+          </Button>
+          {bomQuotes.length > 1 && (
+            <Button
+              onClick={() => {
+                onClose();
+              }}
+              style={{
+                backgroundColor: "#007bff",
+                color: "white",
+                fontFamily: "Poppins, sans-serif",
+                padding: "10px 20px"
+              }}
+            >
+              Compare All Quotes
+            </Button>
+          )}
+          {bestQuote && bom.status === 'approved' && !isSentToFinance && (
+            <Button
+              onClick={async () => {
+                try {
+                  const response = await fetch('/api/finance/bom-invoices', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      bomId: bom.id,
+                      bomData: bom,
+                      bestQuote: bestQuote,
+                      status: 'pending'
+                    }),
+                  });
+                  
+                  if (response.ok) {
+                    alert('BOM sent to Finance successfully!');
+                    setIsSentToFinance(true);
+                  } else {
+                    alert('Failed to send BOM to Finance');
+                  }
+                } catch (error) {
+                  console.error('Error sending BOM to Finance:', error);
+                  alert('Error sending BOM to Finance');
+                }
+              }}
+              style={{
+                backgroundColor: "#28a745",
+                color: "white",
+                fontFamily: "Poppins, sans-serif",
+                padding: "10px 20px",
+                fontWeight: "600"
+              }}
+            >
+              Send to Finance
+            </Button>
+          )}
+          {isSentToFinance && (
+            <Button
+              disabled
+              style={{
+                backgroundColor: "#6c757d",
+                color: "white",
+                fontFamily: "Poppins, sans-serif",
+                padding: "10px 20px",
+                fontWeight: "600",
+                opacity: 0.6
+              }}
+            >
+              Already Sent to Finance
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompareRatesView({
+  bomRates,
+  orders,
+  onClose,
+}: {
+  bomRates: any[];
+  orders: PurchaseOrder[];
+  onClose: () => void;
+}) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedBOM, setSelectedBOM] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"bomNumber" | "totalAmount" | "supplierCount">("bomNumber");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  // Filter rates to only include BOMs that still exist in orders
+  const validRates = bomRates.filter(rate => 
+    orders.some(order => order.id === rate.bomId)
+  );
+  
+  // Group rates by BOM number
+  const groupedRates = validRates.reduce((acc, rate) => {
+    const bomNumber = rate.bomNumber;
+    if (!acc[bomNumber]) {
+      acc[bomNumber] = {
+        bomNumber,
+        bomId: rate.bomId,
+        rates: [],
+        items: rate.items || [],
+      };
+    }
+    acc[bomNumber].rates.push(rate);
+    return acc;
+  }, {} as {[key: string]: {bomNumber: string, bomId: string, rates: any[], items: any[]}});
+
+  // Filter and sort BOMs
+  const filteredBOMs = Object.values(groupedRates).filter(bom => {
+    const searchLower = searchTerm.toLowerCase();
+    return bom.bomNumber.toLowerCase().includes(searchLower) ||
+           bom.rates.some(rate => rate.supplierName.toLowerCase().includes(searchLower));
+  });
+
+  // Sort BOMs
+  const sortedBOMs = filteredBOMs.sort((a, b) => {
+    switch (sortBy) {
+      case "totalAmount":
+        const aMin = Math.min(...a.rates.map(r => r.totalAmount));
+        const bMin = Math.min(...b.rates.map(r => r.totalAmount));
+        return aMin - bMin;
+      case "supplierCount":
+        return b.rates.length - a.rates.length;
+      default:
+        return a.bomNumber.localeCompare(b.bomNumber);
+    }
+  });
+
+  // Pagination
+  const totalPages = Math.ceil(sortedBOMs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedBOMs = sortedBOMs.slice(startIndex, startIndex + itemsPerPage);
+
+  if (Object.keys(groupedRates).length === 0) {
+    return (
+      <div style={{ padding: "60px", textAlign: "center" }}>
+        <Text style={{ color: "#666", fontFamily: "Poppins, sans-serif", fontSize: "18px", marginBottom: "12px" }}>
+          No rates available for comparison
+        </Text>
+        <Text style={{ color: "#999", fontFamily: "Poppins, sans-serif", fontSize: "14px" }}>
+          Suppliers need to submit their quotes first
+        </Text>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ height: "80vh", display: "flex", flexDirection: "column" }}>
+      {/* Header with Search and Filters */}
+      <div style={{ 
+        padding: "24px", 
+        borderBottom: "1px solid #e9ecef", 
+        backgroundColor: "#f8f9fa" 
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <div>
+            <Text style={{ fontSize: "20px", fontWeight: "700", color: "#212529", fontFamily: "Poppins, sans-serif" }}>
+              BOM Rate Comparison
+            </Text>
+            <Text style={{ fontSize: "14px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+              {sortedBOMs.length} BOM{sortedBOMs.length !== 1 ? 's' : ''} with quotes • {validRates.length} total quotes
+            </Text>
+          </div>
+          <Button
+            onClick={onClose}
+            style={{
+              backgroundColor: "transparent",
+              color: "#6c757d",
+              border: "1px solid #dee2e6",
+              fontFamily: "Poppins, sans-serif",
+            }}
+            size="sm"
+          >
+            Close
+          </Button>
+        </div>
+
+        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+          <Input
+            placeholder="Search BOMs or suppliers..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.currentTarget.value);
+              setCurrentPage(1);
+            }}
+            style={{ flex: 1, fontFamily: "Poppins, sans-serif" }}
+            leftSection={
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+              </svg>
+            }
+          />
+          
+          <Select
+            placeholder="Sort by"
+            data={[
+              { value: "bomNumber", label: "BOM Number" },
+              { value: "totalAmount", label: "Lowest Price" },
+              { value: "supplierCount", label: "Most Quotes" },
+            ]}
+            value={sortBy}
+            onChange={(value) => setSortBy(value as any)}
+            style={{ minWidth: "150px", fontFamily: "Poppins, sans-serif" }}
+          />
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+        {paginatedBOMs.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 0" }}>
+            <Text style={{ color: "#666", fontFamily: "Poppins, sans-serif", fontSize: "16px" }}>
+              No BOMs found matching your search
+            </Text>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
+            {paginatedBOMs.map((bomGroup) => {
+              const sortedRates = bomGroup.rates.sort((a, b) => a.totalAmount - b.totalAmount);
+              const lowestRate = sortedRates[0];
+              const isExpanded = selectedBOM === bomGroup.bomNumber;
+              
+              return (
+                <div key={bomGroup.bomNumber} style={{ 
+                  border: "1px solid #e0e0e0", 
+                  borderRadius: "16px",
+                  backgroundColor: "#fff",
+                  overflow: "hidden",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+                }}>
+                  {/* BOM Header */}
+                  <div 
+                    style={{ 
+                      padding: "24px", 
+                      backgroundColor: "#f8f9fa",
+                      borderBottom: "1px solid #e9ecef",
+                      cursor: "pointer"
+                    }}
+                    onClick={() => setSelectedBOM(isExpanded ? null : bomGroup.bomNumber)}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <Text style={{ 
+                          fontSize: "20px", 
+                          fontWeight: "700", 
+                          color: "#212529",
+                          fontFamily: "Poppins, sans-serif",
+                          marginBottom: "4px"
+                        }}>
+                          {bomGroup.bomNumber}
+                        </Text>
+                        <Text style={{ 
+                          fontSize: "14px", 
+                          color: "#6c757d",
+                          fontFamily: "Poppins, sans-serif" 
+                        }}>
+                          {bomGroup.rates.length} quote{bomGroup.rates.length > 1 ? 's' : ''} received • Best price: PKR {lowestRate.totalAmount.toLocaleString()}
+                        </Text>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                        <div style={{ textAlign: "right" }}>
+                          <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                            Price Range
+                          </Text>
+                          <Text style={{ fontSize: "16px", fontWeight: "600", color: "#212529", fontFamily: "Poppins, sans-serif" }}>
+                            PKR {lowestRate.totalAmount.toLocaleString()} - {Math.max(...sortedRates.map(r => r.totalAmount)).toLocaleString()}
+                          </Text>
+                        </div>
+                        <svg 
+                          width="20" 
+                          height="20" 
+                          viewBox="0 0 24 24" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          strokeWidth="2"
+                          style={{ 
+                            transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                            transition: "transform 0.2s"
+                          }}
+                        >
+                          <polyline points="6,9 12,15 18,9"></polyline>
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded Content */}
+                  {isExpanded && (
+                    <div style={{ padding: "24px" }}>
+                      {/* Quotes Comparison */}
+                      <div style={{ display: "grid", gap: "20px", marginBottom: "32px" }}>
+                        {sortedRates.map((rate, index) => (
+                          <div 
+                            key={rate.id} 
+                            style={{ 
+                              padding: "20px", 
+                              backgroundColor: rate.id === lowestRate.id ? "#f0f8ff" : "#f8f9fa",
+                              border: rate.id === lowestRate.id ? "2px solid #007bff" : "1px solid #dee2e6",
+                              borderRadius: "12px",
+                              position: "relative"
+                            }}
+                          >
+                            {rate.id === lowestRate.id && (
+                              <div style={{
+                                position: "absolute",
+                                top: "-10px",
+                                left: "20px",
+                                backgroundColor: "#007bff",
+                                color: "white",
+                                padding: "6px 16px",
+                                borderRadius: "16px",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                fontFamily: "Poppins, sans-serif"
+                              }}>
+                                🏆 BEST PRICE
+                              </div>
+                            )}
+                            
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: "24px", alignItems: "start" }}>
+                              {/* Supplier Info */}
+                              <div>
+                                <Text style={{ 
+                                  fontSize: "18px", 
+                                  fontWeight: "600", 
+                                  color: "#212529",
+                                  marginBottom: "8px",
+                                  fontFamily: "Poppins, sans-serif" 
+                                }}>
+                                  {rate.supplierName}
+                                </Text>
+                                {rate.validUntil && (
+                                  <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                                    Valid until: {new Date(rate.validUntil).toLocaleDateString()}
+                                  </Text>
+                                )}
+                                {rate.notes && (
+                                  <Text style={{ fontSize: "12px", color: "#495057", fontFamily: "Poppins, sans-serif", marginTop: "4px" }}>
+                                    Note: {rate.notes}
+                                  </Text>
+                                )}
+                              </div>
+
+                              {/* Cost Breakdown */}
+                              <div>
+                                <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "8px", fontFamily: "Poppins, sans-serif" }}>
+                                  Cost Breakdown
+                                </Text>
+                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                    <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>Items:</Text>
+                                    <Text style={{ fontSize: "12px", fontWeight: "500", fontFamily: "Poppins, sans-serif" }}>
+                                      PKR {(rate.totalAmount - (rate.transportCost || 0) - (rate.tax || 0)).toLocaleString()}
+                                    </Text>
+                                  </div>
+                                  {rate.transportCost > 0 && (
+                                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                      <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>Transport:</Text>
+                                      <Text style={{ fontSize: "12px", fontWeight: "500", fontFamily: "Poppins, sans-serif" }}>
+                                        PKR {rate.transportCost.toLocaleString()}
+                                      </Text>
+                                    </div>
+                                  )}
+                                  {rate.tax > 0 && (
+                                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                      <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>Tax:</Text>
+                                      <Text style={{ fontSize: "12px", fontWeight: "500", fontFamily: "Poppins, sans-serif" }}>
+                                        PKR {rate.tax.toLocaleString()}
+                                      </Text>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Items Summary */}
+                              <div>
+                                <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "8px", fontFamily: "Poppins, sans-serif" }}>
+                                  Items ({bomGroup.items.length})
+                                </Text>
+                                <div style={{ maxHeight: "100px", overflowY: "auto" }}>
+                                  {bomGroup.items.slice(0, 3).map((item: any) => {
+                                    const itemRate = rate.itemRates?.[item.id];
+                                    return (
+                                      <div key={item.id} style={{ marginBottom: "4px" }}>
+                                        <Text style={{ fontSize: "11px", fontWeight: "500", fontFamily: "Poppins, sans-serif" }}>
+                                          {item.itemName}
+                                        </Text>
+                                        <Text style={{ fontSize: "10px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                                          {item.quantity} {item.unit} × PKR {itemRate?.unitPrice?.toLocaleString() || '0'} = PKR {itemRate?.totalPrice?.toLocaleString() || '0'}
+                                        </Text>
+                                      </div>
+                                    );
+                                  })}
+                                  {bomGroup.items.length > 3 && (
+                                    <Text style={{ fontSize: "10px", color: "#999", fontFamily: "Poppins, sans-serif" }}>
+                                      +{bomGroup.items.length - 3} more items
+                                    </Text>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Total Amount */}
+                              <div style={{ textAlign: "right" }}>
+                                <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                                  Total Amount
+                                </Text>
+                                <Text style={{ 
+                                  fontSize: "24px", 
+                                  fontWeight: "700", 
+                                  color: rate.id === lowestRate.id ? "#007bff" : "#212529",
+                                  fontFamily: "Poppins, sans-serif" 
+                                }}>
+                                  PKR {rate.totalAmount.toLocaleString()}
+                                </Text>
+                                
+                                {index > 0 && (
+                                  <Text style={{ 
+                                    fontSize: "12px", 
+                                    color: "#dc3545",
+                                    fontFamily: "Poppins, sans-serif" 
+                                  }}>
+                                    +PKR {(rate.totalAmount - lowestRate.totalAmount).toLocaleString()}
+                                  </Text>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Detailed Item Comparison */}
+                      <div>
+                        <Text style={{ fontSize: "16px", fontWeight: "600", marginBottom: "16px", fontFamily: "Poppins, sans-serif" }}>
+                          Item-wise Price Comparison
+                        </Text>
+                        
+                        <div style={{ overflowX: "auto" }}>
+                          <Table striped>
+                            <Table.Thead>
+                              <Table.Tr>
+                                <Table.Th style={{ fontSize: "12px", minWidth: "200px" }}>Item Name</Table.Th>
+                                <Table.Th style={{ fontSize: "12px" }}>Qty</Table.Th>
+                                <Table.Th style={{ fontSize: "12px" }}>Unit</Table.Th>
+                                {sortedRates.map((rate) => (
+                                  <Table.Th key={rate.id} style={{ fontSize: "12px", textAlign: "center", minWidth: "120px" }}>
+                                    <div>
+                                      <div style={{ fontWeight: "600" }}>{rate.supplierName}</div>
+                                      <div style={{ fontSize: "10px", color: "#6c757d" }}>Unit Price | Total</div>
+                                    </div>
+                                  </Table.Th>
+                                ))}
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {bomGroup.items.map((item: any) => {
+                                const itemPrices = sortedRates.map(rate => ({
+                                  supplierId: rate.supplierId,
+                                  unitPrice: rate.itemRates?.[item.id]?.unitPrice || 0,
+                                  totalPrice: rate.itemRates?.[item.id]?.totalPrice || 0
+                                }));
+                                const lowestItemPrice = Math.min(...itemPrices.map(p => p.unitPrice).filter(p => p > 0));
+                                
+                                return (
+                                  <Table.Tr key={item.id}>
+                                    <Table.Td style={{ fontSize: "11px", fontWeight: "500" }}>
+                                      <div>{item.itemName}</div>
+                                      <div style={{ fontSize: "10px", color: "#6c757d" }}>{item.itemType}</div>
+                                    </Table.Td>
+                                    <Table.Td style={{ fontSize: "11px" }}>{item.quantity}</Table.Td>
+                                    <Table.Td style={{ fontSize: "11px" }}>{item.unit}</Table.Td>
+                                    {sortedRates.map((rate) => {
+                                      const itemRate = rate.itemRates?.[item.id];
+                                      const unitPrice = itemRate?.unitPrice || 0;
+                                      const totalPrice = itemRate?.totalPrice || 0;
+                                      const isLowest = unitPrice > 0 && unitPrice === lowestItemPrice;
+                                      
+                                      return (
+                                        <Table.Td key={rate.id} style={{ 
+                                          fontSize: "11px", 
+                                          textAlign: "center",
+                                          backgroundColor: isLowest ? "#e8f5e8" : "transparent",
+                                          fontWeight: isLowest ? "600" : "normal"
+                                        }}>
+                                          {unitPrice > 0 ? (
+                                            <div>
+                                              <div>PKR {unitPrice.toLocaleString()}</div>
+                                              <div style={{ fontSize: "10px", color: "#6c757d" }}>
+                                                PKR {totalPrice.toLocaleString()}
+                                              </div>
+                                              {isLowest && (
+                                                <div style={{ fontSize: "9px", color: "#28a745", fontWeight: "600" }}>
+                                                  BEST
+                                                </div>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <Text style={{ fontSize: "10px", color: "#999" }}>No quote</Text>
+                                          )}
+                                        </Table.Td>
+                                      );
+                                    })}
+                                  </Table.Tr>
+                                );
+                              })}
+                            </Table.Tbody>
+                          </Table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ 
+          padding: "20px 24px", 
+          borderTop: "1px solid #e9ecef", 
+          backgroundColor: "#f8f9fa",
+          display: "flex", 
+          justifyContent: "center", 
+          alignItems: "center", 
+          gap: "12px" 
+        }}>
+          <Button
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            size="sm"
+            style={{
+              backgroundColor: currentPage === 1 ? "#e9ecef" : "#007bff",
+              color: currentPage === 1 ? "#6c757d" : "white",
+              border: "none",
+            }}
+          >
+            Previous
+          </Button>
+          
+          <Text style={{ fontSize: "14px", color: "#6c757d", fontFamily: "Poppins, sans-serif", margin: "0 16px" }}>
+            Page {currentPage} of {totalPages} ({sortedBOMs.length} BOMs)
+          </Text>
+          
+          <Button
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            size="sm"
+            style={{
+              backgroundColor: currentPage === totalPages ? "#e9ecef" : "#007bff",
+              color: currentPage === totalPages ? "#6c757d" : "white",
+              border: "none",
+            }}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SimpleBOMDrawer({
+  supplier,
+  boms,
+  bomRates,
+  orders,
+  onClose,
+}: {
+  supplier: Supplier;
+  boms: any[];
+  bomRates: any[];
+  orders: PurchaseOrder[];
+  onClose: () => void;
+}) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedBOM, setSelectedBOM] = useState<any>(null);
+  const [showQuoteForm, setShowQuoteForm] = useState(false);
+  const [quoteData, setQuoteData] = useState<{[key: string]: any}>({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const getBOMRate = (bomId: string, supplierId: string) => {
+    return bomRates.find(rate => rate.bomId === bomId && rate.supplierId === supplierId);
+  };
+
+  // Filter and paginate BOMs
+  const validBoms = boms.filter(bom => orders.some(order => order.id === bom.bomId));
+  const filteredBoms = validBoms.filter(bom => {
+    const searchLower = searchTerm.toLowerCase();
+    return bom.bomNumber.toLowerCase().includes(searchLower) ||
+           bom.items.some((item: any) => item.itemName.toLowerCase().includes(searchLower));
+  });
+
+  const totalPages = Math.ceil(filteredBoms.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedBoms = filteredBoms.slice(startIndex, startIndex + itemsPerPage);
+
+  const submitQuote = async () => {
+    if (!selectedBOM) return;
+    
+    // Validate that at least one item has a price
+    const hasItemPrices = selectedBOM.items.some((item: any) => 
+      quoteData[`item_${item.id}_unitPrice`] && parseFloat(quoteData[`item_${item.id}_unitPrice`]) > 0
+    );
+    
+    if (!hasItemPrices) {
+      alert("Please enter at least one item price");
+      return;
+    }
+
+    // Calculate totals
+    let itemsSubtotal = 0;
+    const itemRates: {[key: string]: {unitPrice: number, totalPrice: number}} = {};
+    
+    selectedBOM.items.forEach((item: any) => {
+      const unitPrice = parseFloat(quoteData[`item_${item.id}_unitPrice`]) || 0;
+      if (unitPrice > 0) {
+        const totalPrice = unitPrice * item.quantity;
+        itemRates[item.id] = { unitPrice, totalPrice };
+        itemsSubtotal += totalPrice;
+      }
+    });
+
+    const transportCost = parseFloat(quoteData.transportCost) || 0;
+    const tax = parseFloat(quoteData.tax) || 0;
+    const totalAmount = itemsSubtotal + transportCost + tax;
+
+    try {
+      await fetch("/api/bom-rates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bomId: selectedBOM.bomId,
+          bomNumber: selectedBOM.bomNumber,
+          supplierId: supplier.id,
+          supplierName: supplier.name,
+          unitPrice: 0, // Legacy field
+          transportCost,
+          tax,
+          totalAmount,
+          notes: quoteData.notes || "",
+          validUntil: quoteData.validUntil || "",
+          items: selectedBOM.items,
+          itemRates
+        }),
+      });
+      
+      setShowQuoteForm(false);
+      setSelectedBOM(null);
+      setQuoteData({});
+      // Refresh page to show updated rates
+      window.location.reload();
+    } catch (error) {
+      console.error("Error submitting quote:", error);
+      alert("Error submitting quote. Please try again.");
+    }
+  };
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.5)",
+          zIndex: 40,
+        }}
+        onClick={onClose}
+      />
+
+      {/* Drawer */}
+      <div
+        style={{
+          position: "fixed",
+          right: 0,
+          top: 0,
+          height: "100%",
+          width: "100%",
+          maxWidth: "900px",
+          backgroundColor: "white",
+          boxShadow: "-4px 0 16px rgba(0, 0, 0, 0.1)",
+          zIndex: 50,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "24px 32px",
+            borderBottom: "1px solid #e9ecef",
+            backgroundColor: "#f8f9fa",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <Text
+                style={{
+                  fontSize: "24px",
+                  fontWeight: "700",
+                  color: "#212529",
+                  margin: 0,
+                  fontFamily: "Poppins, sans-serif",
+                }}
+              >
+                {supplier.name}
+              </Text>
+              <Text
+                style={{
+                  fontSize: "14px",
+                  color: "#6c757d",
+                  marginTop: "4px",
+                  fontFamily: "Poppins, sans-serif",
+                }}
+              >
+                {supplier.email} • {supplier.phone}
+              </Text>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                background: "none",
+                border: "none",
+                fontSize: "28px",
+                color: "#6c757d",
+                cursor: "pointer",
+                padding: "8px",
+                borderRadius: "50%",
+                transition: "background-color 0.2s",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#e9ecef"}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Search and Stats */}
+        <div style={{ padding: "20px 32px", borderBottom: "1px solid #e9ecef", backgroundColor: "#fff" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <div>
+              <Text style={{ fontSize: "18px", fontWeight: "600", color: "#495057", fontFamily: "Poppins, sans-serif" }}>
+                BOMs Received ({filteredBoms.length})
+              </Text>
+              <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                {bomRates.filter(rate => rate.supplierId === supplier.id).length} quotes submitted
+              </Text>
+            </div>
+          </div>
+          
+          <Input
+            placeholder="Search BOMs by number or items..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.currentTarget.value);
+              setCurrentPage(1); // Reset to first page when searching
+            }}
+            style={{
+              fontFamily: "Poppins, sans-serif",
+              fontSize: "14px",
+              backgroundColor: "#f8f9fa",
+              border: "1px solid #dee2e6",
+              borderRadius: "8px",
+            }}
+            leftSection={
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+              </svg>
+            }
+          />
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
+          {filteredBoms.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "80px 32px" }}>
+              <Text style={{ color: "#6c757d", fontFamily: "Poppins, sans-serif", fontSize: "16px", marginBottom: "8px" }}>
+                {searchTerm ? "No BOMs found matching your search" : "No BOMs received yet"}
+              </Text>
+              <Text style={{ color: "#adb5bd", fontSize: "14px", fontFamily: "Poppins, sans-serif" }}>
+                {searchTerm ? "Try adjusting your search terms" : "BOMs will appear here when sent by the company"}
+              </Text>
+            </div>
+          ) : (
+            <>
+              {/* BOM List */}
+              <div style={{ padding: "0" }}>
+                {paginatedBoms.map((bom, index) => {
+                  const rate = getBOMRate(bom.bomId, supplier.id);
+                  const hasQuote = !!rate;
+                  
+                  return (
+                    <div
+                      key={bom.id}
+                      style={{
+                        borderBottom: "1px solid #e9ecef",
+                        padding: "20px 32px",
+                        backgroundColor: index % 2 === 0 ? "#fff" : "#f8f9fa",
+                        transition: "background-color 0.2s",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#e3f2fd"}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? "#fff" : "#f8f9fa"}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+                            <Text
+                              style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "#212529",
+                                fontFamily: "Poppins, sans-serif",
+                              }}
+                            >
+                              {bom.bomNumber}
+                            </Text>
+                            {hasQuote && (
+                              <span style={{
+                                padding: "4px 8px",
+                                backgroundColor: "#d4edda",
+                                color: "#155724",
+                                borderRadius: "12px",
+                                fontSize: "11px",
+                                fontWeight: "500",
+                                fontFamily: "Poppins, sans-serif",
+                              }}>
+                                ✓ Quoted
+                              </span>
+                            )}
+                          </div>
+                          
+                          <Text style={{ fontSize: "12px", color: "#6c757d", marginBottom: "12px", fontFamily: "Poppins, sans-serif" }}>
+                            Sent: {new Date(bom.sentAt).toLocaleDateString()} • {bom.items.length} items
+                          </Text>
+
+                          {/* Items Preview */}
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
+                            {bom.items.slice(0, 3).map((item: any) => (
+                              <span
+                                key={item.id}
+                                style={{
+                                  padding: "4px 8px",
+                                  backgroundColor: "#e9ecef",
+                                  borderRadius: "6px",
+                                  fontSize: "11px",
+                                  color: "#495057",
+                                  fontFamily: "Poppins, sans-serif",
+                                }}
+                              >
+                                {item.itemName} ({item.quantity} {item.unit})
+                              </span>
+                            ))}
+                            {bom.items.length > 3 && (
+                              <span style={{
+                                padding: "4px 8px",
+                                backgroundColor: "#dee2e6",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                color: "#6c757d",
+                                fontFamily: "Poppins, sans-serif",
+                              }}>
+                                +{bom.items.length - 3} more
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Quote Summary */}
+                          {hasQuote && rate && (
+                            <div style={{ 
+                              padding: "12px", 
+                              backgroundColor: "#f8f9fa", 
+                              borderRadius: "8px",
+                              border: "1px solid #dee2e6",
+                              marginTop: "12px"
+                            }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div>
+                                  <Text style={{ fontSize: "12px", color: "#495057", fontWeight: "500", fontFamily: "Poppins, sans-serif" }}>
+                                    Your Quote: PKR {rate.totalAmount.toLocaleString()}
+                                  </Text>
+                                  {rate.validUntil && (
+                                    <Text style={{ fontSize: "10px", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                                      Valid until: {new Date(rate.validUntil).toLocaleDateString()}
+                                    </Text>
+                                  )}
+                                </div>
+                                <Button
+                                  onClick={() => {
+                                    setSelectedBOM(bom);
+                                    setShowQuoteForm(true);
+                                    // Pre-fill form with existing data
+                                    const formData: any = {
+                                      transportCost: rate.transportCost?.toString() || "",
+                                      tax: rate.tax?.toString() || "",
+                                      notes: rate.notes || "",
+                                      validUntil: rate.validUntil || "",
+                                    };
+                                    if (rate.itemRates) {
+                                      Object.entries(rate.itemRates).forEach(([itemId, itemRate]: [string, any]) => {
+                                        formData[`item_${itemId}_unitPrice`] = itemRate.unitPrice?.toString() || "";
+                                      });
+                                    }
+                                    setQuoteData(formData);
+                                  }}
+                                  size="xs"
+                                  style={{
+                                    backgroundColor: "transparent",
+                                    color: "#007bff",
+                                    border: "1px solid #007bff",
+                                    fontSize: "10px",
+                                    padding: "4px 8px",
+                                  }}
+                                >
+                                  View Quote
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action Button */}
+                        <div style={{ marginLeft: "16px" }}>
+                          {!hasQuote ? (
+                            <Button
+                              onClick={() => {
+                                setSelectedBOM(bom);
+                                setShowQuoteForm(true);
+                                setQuoteData({});
+                              }}
+                              style={{
+                                backgroundColor: "#28a745",
+                                color: "white",
+                                fontFamily: "Poppins, sans-serif",
+                                fontSize: "12px",
+                                fontWeight: "500",
+                                padding: "8px 16px",
+                              }}
+                            >
+                              Add Quote
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => {
+                                setSelectedBOM(bom);
+                                setShowQuoteForm(true);
+                                // Pre-fill with existing data for viewing
+                                const formData: any = {
+                                  transportCost: rate.transportCost?.toString() || "",
+                                  tax: rate.tax?.toString() || "",
+                                  notes: rate.notes || "",
+                                  validUntil: rate.validUntil || "",
+                                };
+                                if (rate.itemRates) {
+                                  Object.entries(rate.itemRates).forEach(([itemId, itemRate]: [string, any]) => {
+                                    formData[`item_${itemId}_unitPrice`] = itemRate.unitPrice?.toString() || "";
+                                  });
+                                }
+                                setQuoteData(formData);
+                              }}
+                              style={{
+                                backgroundColor: "#6c757d",
+                                color: "white",
+                                fontFamily: "Poppins, sans-serif",
+                                fontSize: "12px",
+                                fontWeight: "500",
+                                padding: "8px 16px",
+                              }}
+                            >
+                              View Only
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div style={{ 
+                  padding: "20px 32px", 
+                  borderTop: "1px solid #e9ecef", 
+                  backgroundColor: "#f8f9fa",
+                  display: "flex", 
+                  justifyContent: "center", 
+                  alignItems: "center", 
+                  gap: "8px" 
+                }}>
+                  <Button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    size="xs"
+                    style={{
+                      backgroundColor: currentPage === 1 ? "#e9ecef" : "#007bff",
+                      color: currentPage === 1 ? "#6c757d" : "white",
+                      border: "none",
+                    }}
+                  >
+                    Previous
+                  </Button>
+                  
+                  <Text style={{ fontSize: "12px", color: "#6c757d", fontFamily: "Poppins, sans-serif", margin: "0 12px" }}>
+                    Page {currentPage} of {totalPages} ({filteredBoms.length} BOMs)
+                  </Text>
+                  
+                  <Button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    size="xs"
+                    style={{
+                      backgroundColor: currentPage === totalPages ? "#e9ecef" : "#007bff",
+                      color: currentPage === totalPages ? "#6c757d" : "white",
+                      border: "none",
+                    }}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Quote Form Modal */}
+      {showQuoteForm && selectedBOM && (
+        <Modal
+          opened={showQuoteForm}
+          onClose={() => {
+            setShowQuoteForm(false);
+            setSelectedBOM(null);
+            setQuoteData({});
+          }}
+          title={`${getBOMRate(selectedBOM.bomId, supplier.id) ? "View Quote" : "Add Quote"} - ${selectedBOM.bomNumber}`}
+          size="xl"
+          styles={{
+            content: { maxWidth: "95vw", width: "1200px" },
+            header: { borderBottom: "1px solid #e9ecef", paddingBottom: "16px" },
+          }}
+        >
+          <QuoteForm
+            bom={selectedBOM}
+            supplier={supplier}
+            quoteData={quoteData}
+            setQuoteData={setQuoteData}
+            onSubmit={submitQuote}
+            onCancel={() => {
+              setShowQuoteForm(false);
+              setSelectedBOM(null);
+              setQuoteData({});
+            }}
+            isViewOnly={!!getBOMRate(selectedBOM.bomId, supplier.id)}
+          />
+        </Modal>
+      )}
+    </>
+  );
+}
