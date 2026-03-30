@@ -6,6 +6,118 @@ import { Navigation } from "@/components/Navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LogoutButton } from "@/components/LogoutButton";
 
+const downloadDepartureReportPDF = async (order: any, client: any) => {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const right = pageWidth - 14;
+
+  // Header bar
+  doc.setFillColor(20, 20, 20);
+  doc.rect(0, 0, pageWidth, 28, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text("DEPARTURE REPORT", 14, 18);
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Order #: ${order.po_number || order.id.slice(0, 8)}`, right, 12, { align: "right" });
+  doc.text(`Date: ${new Date(order.fulfilled_at).toLocaleDateString()}`, right, 20, { align: "right" });
+
+  // Reset text color
+  doc.setTextColor(0, 0, 0);
+
+  // Client / Order Info
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text("CLIENT INFORMATION", 14, 38);
+  doc.text("ORDER INFORMATION", pageWidth / 2 + 5, 38);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(client?.name || order.client_name || "N/A", 14, 46);
+  if (client?.email) doc.text(client.email, 14, 53);
+  if (client?.phone) doc.text(client.phone, 14, 60);
+  if (client?.address) doc.text(client.address, 14, 67, { maxWidth: pageWidth / 2 - 20 });
+
+  doc.text(`Product: ${order.product_name}`, pageWidth / 2 + 5, 46);
+  doc.text(`Quantity: ${order.quantity} ${order.unit}`, pageWidth / 2 + 5, 53);
+  doc.text(`Fulfilled By: ${order.fulfilled_by}`, pageWidth / 2 + 5, 60);
+  doc.text(`Fulfilled Date: ${new Date(order.fulfilled_at).toLocaleString()}`, pageWidth / 2 + 5, 67);
+
+  // Divider
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, 75, right, 75);
+
+  // Order Details Table
+  autoTable(doc, {
+    startY: 82,
+    head: [["Description", "Quantity", "Unit Price", "Tax", "Transport", "Other", "Total"]],
+    body: [[
+      order.product_name,
+      `${order.quantity} ${order.unit}`,
+      `PKR ${Number(order.unit_price || 0).toLocaleString()}`,
+      `PKR ${Number(order.tax || 0).toLocaleString()}`,
+      `PKR ${Number(order.transport || 0).toLocaleString()}`,
+      `PKR ${Number(order.other_charges || 0).toLocaleString()}`,
+      `PKR ${Number(order.total_price).toLocaleString()}`
+    ]],
+    styles: { fontSize: 10 },
+    headStyles: { fillColor: [30, 30, 30], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [248, 248, 248] },
+    columnStyles: { 6: { halign: "right", fontStyle: "bold" } },
+  });
+
+  // Payment Summary
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  const summaryX = pageWidth - 90;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  
+  const subtotal = Number(order.unit_price || 0) * order.quantity;
+  doc.text("Subtotal:", summaryX, finalY);
+  doc.text(`PKR ${subtotal.toLocaleString()}`, right, finalY, { align: "right" });
+
+  if (order.tax > 0) {
+    doc.text("Tax:", summaryX, finalY + 8);
+    doc.text(`PKR ${Number(order.tax).toLocaleString()}`, right, finalY + 8, { align: "right" });
+  }
+  if (order.transport > 0) {
+    doc.text("Transport:", summaryX, finalY + 16);
+    doc.text(`PKR ${Number(order.transport).toLocaleString()}`, right, finalY + 16, { align: "right" });
+  }
+  if (order.other_charges > 0) {
+    doc.text("Other Charges:", summaryX, finalY + 24);
+    doc.text(`PKR ${Number(order.other_charges).toLocaleString()}`, right, finalY + 24, { align: "right" });
+  }
+
+  const totalY = finalY + 32;
+  doc.setDrawColor(0, 0, 0);
+  doc.line(summaryX, totalY - 4, right, totalY - 4);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("TOTAL:", summaryX, totalY + 2);
+  doc.text(`PKR ${Number(order.total_price).toLocaleString()}`, right, totalY + 2, { align: "right" });
+
+  // Payment Info
+  if (order.payment_method) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Payment Method: ${order.payment_method.replace('_', ' ').toUpperCase()}`, summaryX, totalY + 12);
+    doc.text(`Payment Confirmed: ${new Date(order.payment_confirmed_at).toLocaleDateString()}`, summaryX, totalY + 18);
+  }
+
+  // Footer
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text("This is a system-generated departure report.", pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: "center" });
+
+  doc.save(`Departure-Report-${order.po_number || order.id.slice(0, 8)}-${Date.now()}.pdf`);
+};
+
 const downloadReceivingPDF = async (record: any) => {
   const { default: jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
@@ -95,6 +207,8 @@ export default function Inventory() {
     fetchPendingReceiving();
     fetchReceivingRecords();
     fetchProducts();
+    fetchClientOrders();
+    fetchClients();
   }, []);
 
   const fetchNotifications = async () => {
@@ -144,6 +258,10 @@ export default function Inventory() {
   const [stockAdjust, setStockAdjust] = useState<number>(0);
   const [stockAdjustNote, setStockAdjustNote] = useState('');
   const [newPrice, setNewPrice] = useState<number>(0);
+  const [clientOrders, setClientOrders] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
+  const [selectedClientOrder, setSelectedClientOrder] = useState<any>(null);
+  const [showClientOrderModal, setShowClientOrderModal] = useState(false);
 
   const getBOMType = (bomData: any) => {
     if (!bomData.items || bomData.items.length === 0) return 'Unknown';
@@ -313,6 +431,26 @@ export default function Inventory() {
       const data = await res.json();
       setProducts(data);
     } catch (e) { console.error(e); }
+  };
+
+  const fetchClientOrders = async () => {
+    try {
+      const res = await fetch("/api/crm/orders");
+      const data = await res.json();
+      setClientOrders(data.filter((o: any) => o.status === "payment_confirmed" || o.status === "fulfilled"));
+    } catch (error) {
+      console.error("Error fetching client orders:", error);
+    }
+  };
+
+  const fetchClients = async () => {
+    try {
+      const res = await fetch("/api/crm/clients");
+      const data = await res.json();
+      setClients(data);
+    } catch (error) {
+      console.error("Error fetching clients:", error);
+    }
   };
 
   const handleImageUpload = async (files: FileList) => {
@@ -533,6 +671,7 @@ export default function Inventory() {
                 <Tabs.List>
                   <Tabs.Tab value="receiving">Receiving</Tabs.Tab>
                   <Tabs.Tab value="products">Products</Tabs.Tab>
+                  <Tabs.Tab value="client-orders">Client Orders</Tabs.Tab>
                 </Tabs.List>
 
                 <Tabs.Panel value="receiving" pt="md">
@@ -694,6 +833,143 @@ export default function Inventory() {
                       </Table.Tbody>
                     </Table>
                   )}
+                </Tabs.Panel>
+
+                <Tabs.Panel value="client-orders" pt="md">
+                  <Tabs defaultValue="pending">
+                    <Tabs.List>
+                      <Tabs.Tab value="pending">
+                        Pending Orders ({clientOrders.filter(o => o.status === "payment_confirmed").length})
+                      </Tabs.Tab>
+                      <Tabs.Tab value="fulfilled">
+                        Fulfilled Orders ({clientOrders.filter(o => o.status === "fulfilled").length})
+                      </Tabs.Tab>
+                    </Tabs.List>
+
+                    <Tabs.Panel value="pending" pt="md">
+                      {clientOrders.filter(o => o.status === "payment_confirmed").length === 0 ? (
+                        <div style={{ padding: "40px", textAlign: "center", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                          No pending client orders
+                        </div>
+                      ) : (
+                        <Table striped>
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>Order ID</Table.Th>
+                              <Table.Th>Client</Table.Th>
+                              <Table.Th>Product</Table.Th>
+                              <Table.Th>Quantity</Table.Th>
+                              <Table.Th>Total Amount</Table.Th>
+                              <Table.Th>Payment Status</Table.Th>
+                              <Table.Th>Actions</Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {clientOrders.filter(o => o.status === "payment_confirmed").map((order: any) => (
+                              <Table.Tr 
+                                key={order.id} 
+                                style={{ cursor: "pointer" }}
+                                onClick={() => { 
+                                  setSelectedClientOrder(order); 
+                                  setShowClientOrderModal(true); 
+                                }}
+                              >
+                                <Table.Td>
+                                  <Text style={{ fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+                                    {order.po_number || order.id.slice(0, 8)}
+                                  </Text>
+                                </Table.Td>
+                                <Table.Td>{order.client_name}</Table.Td>
+                                <Table.Td>{order.product_name}</Table.Td>
+                                <Table.Td>{order.quantity} {order.unit}</Table.Td>
+                                <Table.Td>
+                                  <Text style={{ fontWeight: "600", color: "#28a745" }}>
+                                    PKR {Number(order.total_price).toLocaleString()}
+                                  </Text>
+                                </Table.Td>
+                                <Table.Td>
+                                  <Badge color="green">✓ Payment Confirmed</Badge>
+                                </Table.Td>
+                                <Table.Td onClick={(e) => e.stopPropagation()}>
+                                  <Button 
+                                    size="xs" 
+                                    onClick={() => { 
+                                      setSelectedClientOrder(order); 
+                                      setShowClientOrderModal(true); 
+                                    }} 
+                                    style={{ backgroundColor: "#007bff", fontFamily: "Poppins, sans-serif" }}
+                                  >
+                                    View & Fulfill
+                                  </Button>
+                                </Table.Td>
+                              </Table.Tr>
+                            ))}
+                          </Table.Tbody>
+                        </Table>
+                      )}
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="fulfilled" pt="md">
+                      {clientOrders.filter(o => o.status === "fulfilled").length === 0 ? (
+                        <div style={{ padding: "40px", textAlign: "center", color: "#6c757d", fontFamily: "Poppins, sans-serif" }}>
+                          No fulfilled orders yet
+                        </div>
+                      ) : (
+                        <Table striped>
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>Order ID</Table.Th>
+                              <Table.Th>Client</Table.Th>
+                              <Table.Th>Product</Table.Th>
+                              <Table.Th>Quantity</Table.Th>
+                              <Table.Th>Total Amount</Table.Th>
+                              <Table.Th>Fulfilled Date</Table.Th>
+                              <Table.Th>Actions</Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {clientOrders.filter(o => o.status === "fulfilled").map((order: any) => (
+                              <Table.Tr 
+                                key={order.id}
+                                style={{ cursor: "pointer" }}
+                                onClick={() => { 
+                                  setSelectedClientOrder(order); 
+                                  setShowClientOrderModal(true); 
+                                }}
+                              >
+                                <Table.Td>
+                                  <Text style={{ fontWeight: "600", fontFamily: "Poppins, sans-serif" }}>
+                                    {order.po_number || order.id.slice(0, 8)}
+                                  </Text>
+                                </Table.Td>
+                                <Table.Td>{order.client_name}</Table.Td>
+                                <Table.Td>{order.product_name}</Table.Td>
+                                <Table.Td>{order.quantity} {order.unit}</Table.Td>
+                                <Table.Td>
+                                  <Text style={{ fontWeight: "600", color: "#28a745" }}>
+                                    PKR {Number(order.total_price).toLocaleString()}
+                                  </Text>
+                                </Table.Td>
+                                <Table.Td>{order.fulfilled_at ? new Date(order.fulfilled_at).toLocaleString() : '—'}</Table.Td>
+                                <Table.Td onClick={(e) => e.stopPropagation()}>
+                                  <Button 
+                                    size="xs" 
+                                    onClick={() => { 
+                                      setSelectedClientOrder(order); 
+                                      setShowClientOrderModal(true); 
+                                    }} 
+                                    style={{ backgroundColor: "#6c757d", fontFamily: "Poppins, sans-serif" }}
+                                  >
+                                    View Details
+                                  </Button>
+                                </Table.Td>
+                              </Table.Tr>
+                            ))}
+                          </Table.Tbody>
+                        </Table>
+                      )}
+                    </Tabs.Panel>
+                  </Tabs>
                 </Tabs.Panel>
               </Tabs>
             </Box>
@@ -1206,6 +1482,197 @@ export default function Inventory() {
               </div>
             </div>
 
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        opened={showClientOrderModal}
+        onClose={() => { setShowClientOrderModal(false); setSelectedClientOrder(null); }}
+        title=""
+        size="xl"
+        styles={{ 
+          header: { display: "none" }, 
+          body: { padding: 0 },
+          content: { width: "1600px", maxWidth: "98vw" }
+        }}
+      >
+        {selectedClientOrder && (
+          <div style={{ fontFamily: "Poppins, sans-serif" }}>
+            <div style={{ backgroundColor: "#111", padding: "20px 24px", position: "relative" }}>
+              <button onClick={() => { setShowClientOrderModal(false); setSelectedClientOrder(null); }} style={{ position: "absolute", top: "14px", right: "14px", background: "rgba(255,255,255,0.1)", border: "none", color: "white", borderRadius: "50%", width: "26px", height: "26px", cursor: "pointer" }}>×</button>
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: "10px", textTransform: "uppercase", marginBottom: "4px" }}>Client Order</Text>
+              <Text style={{ color: "white", fontSize: "20px", fontWeight: "700" }}>
+                {selectedClientOrder.po_number || `#${selectedClientOrder.id.slice(0, 8)}`}
+              </Text>
+              <div style={{ marginTop: "8px" }}>
+                {selectedClientOrder.status === "payment_confirmed" && (
+                  <Badge color="green">✓ Payment Confirmed - Ready to Fulfill</Badge>
+                )}
+                {selectedClientOrder.status === "fulfilled" && (
+                  <Badge color="blue">✓ Fulfilled</Badge>
+                )}
+              </div>
+            </div>
+
+            <div style={{ padding: "20px 24px" }}>
+              <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "12px" }}>Client Information</Text>
+              {(() => {
+                const client = clients.find(c => c.id === selectedClientOrder.client_id);
+                return client ? (
+                  <div style={{ backgroundColor: "#f8f9fa", padding: "16px", borderRadius: "8px", marginBottom: "20px" }}>
+                    <div style={{ marginBottom: "8px" }}><strong>Name:</strong> {client.name}</div>
+                    {client.email && <div style={{ marginBottom: "8px" }}><strong>Email:</strong> {client.email}</div>}
+                    {client.phone && <div style={{ marginBottom: "8px" }}><strong>Phone:</strong> {client.phone}</div>}
+                    {client.company && <div style={{ marginBottom: "8px" }}><strong>Company:</strong> {client.company}</div>}
+                    {client.address && <div><strong>Address:</strong> {client.address}</div>}
+                  </div>
+                ) : null;
+              })()}
+
+              <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "12px" }}>Order Details</Text>
+              <div style={{ backgroundColor: "#f8f9fa", padding: "16px", borderRadius: "8px", marginBottom: "20px" }}>
+                <div style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #e0e0e0" }}>
+                  <div style={{ fontWeight: "600", fontSize: "15px", marginBottom: "8px" }}>{selectedClientOrder.product_name}</div>
+                  <div style={{ fontSize: "13px", color: "#666" }}>Quantity: {selectedClientOrder.quantity} {selectedClientOrder.unit}</div>
+                </div>
+
+                <div style={{ marginBottom: "12px" }}>
+                  <Text style={{ fontSize: "12px", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Price Breakdown</Text>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "13px" }}>
+                    <span>Unit Price:</span>
+                    <span style={{ fontWeight: "600" }}>PKR {Number(selectedClientOrder.unit_price || 0).toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "13px" }}>
+                    <span>Quantity:</span>
+                    <span>× {selectedClientOrder.quantity}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", paddingBottom: "8px", borderBottom: "1px solid #e0e0e0", fontSize: "13px" }}>
+                    <span style={{ fontWeight: "600" }}>Product Subtotal:</span>
+                    <span style={{ fontWeight: "600" }}>PKR {(Number(selectedClientOrder.unit_price || 0) * selectedClientOrder.quantity).toFixed(2)}</span>
+                  </div>
+
+                  <Text style={{ fontSize: "12px", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Additional Charges</Text>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "13px" }}>
+                    <span>Tax:</span>
+                    <span>PKR {Number(selectedClientOrder.tax || 0).toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "13px" }}>
+                    <span>Transport Cost:</span>
+                    <span>PKR {Number(selectedClientOrder.transport || 0).toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "13px" }}>
+                    <span>Other Charges:</span>
+                    <span>PKR {Number(selectedClientOrder.other_charges || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "12px", borderTop: "2px solid #333", fontSize: "17px", fontWeight: "700" }}>
+                  <span>Grand Total:</span>
+                  <span style={{ color: "#28a745" }}>PKR {Number(selectedClientOrder.total_price || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {selectedClientOrder.payment_method && (
+                <div style={{ backgroundColor: "#d4edda", padding: "12px", borderRadius: "6px", marginBottom: "16px", fontSize: "13px" }}>
+                  <Text style={{ fontWeight: "600", marginBottom: "6px", color: "#155724" }}>Payment Information</Text>
+                  <div style={{ color: "#155724" }}>
+                    <div><strong>Method:</strong> {selectedClientOrder.payment_method.replace('_', ' ').toUpperCase()}</div>
+                    <div><strong>Amount:</strong> PKR {Number(selectedClientOrder.payment_amount || selectedClientOrder.total_price).toLocaleString()}</div>
+                    <div><strong>Confirmed By:</strong> {selectedClientOrder.payment_confirmed_by}</div>
+                    <div><strong>Confirmed On:</strong> {new Date(selectedClientOrder.payment_confirmed_at).toLocaleString()}</div>
+                  </div>
+                </div>
+              )}
+
+              {selectedClientOrder.status === "payment_confirmed" ? (
+                <div>
+                  <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+                    <Button 
+                      onClick={() => {
+                        const client = clients.find(c => c.id === selectedClientOrder.client_id);
+                        if (!client || !client.phone) {
+                          alert("Client phone number not available");
+                          return;
+                        }
+                        
+                        const message = `*Order Ready for Delivery*\n\nDear ${client.name},\n\nYour order is ready for delivery:\n\n*Order #:* ${selectedClientOrder.po_number || selectedClientOrder.id.slice(0, 8)}\n*Product:* ${selectedClientOrder.product_name}\n*Quantity:* ${selectedClientOrder.quantity} ${selectedClientOrder.unit}\n*Total Amount:* PKR ${Number(selectedClientOrder.total_price).toLocaleString()}\n\nWe will contact you shortly to arrange delivery.\n\nThank you!`;
+                        
+                        const whatsappUrl = `https://wa.me/${client.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+                        window.open(whatsappUrl, '_blank');
+                      }}
+                      style={{ flex: 1, backgroundColor: "#25D366", color: "white" }}
+                    >
+                      📱 Contact Client via WhatsApp
+                    </Button>
+                  </div>
+
+                  <div style={{ backgroundColor: "#fff3cd", padding: "12px", borderRadius: "6px", marginBottom: "16px", fontSize: "13px", color: "#856404" }}>
+                    <strong>⚠️ Action Required:</strong> This order is ready to be fulfilled. Fulfilling will deduct {selectedClientOrder.quantity} {selectedClientOrder.unit} from inventory stock.
+                  </div>
+                  
+                  <Button 
+                    onClick={async () => {
+                      if (!confirm(`Mark this order as fulfilled?\n\nThis will:\n- Deduct ${selectedClientOrder.quantity} ${selectedClientOrder.unit} from inventory\n- Record this transaction in product history\n- Generate departure report`)) return;
+                      
+                      try {
+                        // Update order status
+                        const response = await fetch("/api/crm/orders", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            id: selectedClientOrder.id,
+                            status: "fulfilled",
+                            fulfilledBy: currentUser?.username,
+                            fulfilledAt: new Date().toISOString(),
+                            productName: selectedClientOrder.product_name,
+                            quantity: selectedClientOrder.quantity,
+                            clientName: selectedClientOrder.client_name
+                          })
+                        });
+                        
+                        if (response.ok) {
+                          alert("Order fulfilled successfully! Stock has been updated.");
+                          setShowClientOrderModal(false);
+                          fetchClientOrders();
+                          fetchProducts(); // Refresh products to show updated stock
+                        } else {
+                          const error = await response.json();
+                          alert(`Failed to fulfill order: ${error.error || 'Unknown error'}`);
+                        }
+                      } catch (error) {
+                        console.error("Error fulfilling order:", error);
+                        alert("Error fulfilling order. Please try again.");
+                      }
+                    }}
+                    fullWidth
+                    style={{ backgroundColor: "#28a745", color: "white", padding: "12px", fontSize: "15px", fontWeight: "600" }}
+                  >
+                    ✓ Mark as Fulfilled & Update Inventory
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ backgroundColor: "#d4edda", padding: "12px", borderRadius: "6px", marginBottom: "16px", fontSize: "13px", color: "#155724", textAlign: "center" }}>
+                    <strong>✓ Order Fulfilled</strong>
+                    <div style={{ fontSize: "12px", marginTop: "4px" }}>
+                      Fulfilled by {selectedClientOrder.fulfilled_by} on {new Date(selectedClientOrder.fulfilled_at).toLocaleString()}
+                    </div>
+                  </div>
+                  
+                  <Button 
+                    onClick={() => {
+                      const client = clients.find(c => c.id === selectedClientOrder.client_id);
+                      downloadDepartureReportPDF(selectedClientOrder, client);
+                    }}
+                    fullWidth
+                    style={{ backgroundColor: "#007bff", color: "white", padding: "12px", fontSize: "14px" }}
+                  >
+                    📄 Download Departure Report
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Modal>

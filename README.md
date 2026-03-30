@@ -1,163 +1,161 @@
-# ERP Application
+# ERP Application - Next.js
 
-This is a comprehensive ERP (Enterprise Resource Planning) application built with [Next.js](https://nextjs.org) that manages suppliers, BOMs (Bill of Materials), quotes, and procurement processes.
+A comprehensive ERP system built with Next.js, Supabase, and Mantine UI.
 
 ## Features
 
-### Supplier Management
-- **Enhanced Supplier Dashboard**: View all suppliers with comprehensive BOM and quote statistics
-- **BOM Tracking**: Track BOMs sent to suppliers with status monitoring
-- **Quote Management**: Suppliers can submit detailed quotes for BOMs with item-level pricing
-- **Response Rate Analytics**: Monitor supplier responsiveness and quote submission rates
+- 🔐 User Authentication & Role-based Access Control
+- 📊 Dashboard & Analytics
+- 👥 CRM - Customer Relationship Management
+- 📦 Inventory Management
+- 💰 Finance Module
+- 🛒 Purchase Orders
+- 🏭 Manufacturing
+- 📝 Documentation
+- 🌐 Website Management
+- 👔 HR Management
 
-### BOM & Quote System
-- **BOM Distribution**: Send BOMs to multiple suppliers for competitive quoting
-- **Interactive Quote Submission**: Suppliers can add quotes with:
-  - Item-level pricing and lead times
-  - Quote validity periods
-  - Additional notes and specifications
-- **Quote Comparison**: Side-by-side comparison of supplier quotes with:
-  - Price analysis (lowest, highest, average)
-  - Item-level breakdowns
-  - Lead time comparisons
-  - Visual indicators for best prices
+## Tech Stack
 
-### Key Pages
-- `/suppliers` - Enhanced supplier management with BOM/quote overview
-- `/supplier/dashboard` - Supplier portal for viewing BOMs and submitting quotes
-- `/bom` - BOM creation and management
-- `/admin` - Administrative functions
+- **Framework**: Next.js 16.2.1 (App Router)
+- **Database**: Supabase (PostgreSQL)
+- **UI Library**: Mantine 8.3
+- **Styling**: Tailwind CSS 4
+- **Language**: TypeScript
+- **PDF Generation**: jsPDF
+- **Authentication**: Custom with Supabase
 
-## Getting Started
+## Quick Start
 
-First, run the development server:
-
+### 1. Install Dependencies
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Set Up Environment Variables
+Create a `.env.local` file in the root directory:
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+```
+
+### 3. Set Up Database
+Run the SQL scripts in your Supabase SQL Editor:
+1. `supabase-schema.sql` - Creates all tables
+2. `database-updates.sql` - Adds additional columns
+
+### 4. Run Development Server
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### 5. Login
+Default credentials:
+- **Superadmin**: `superadmin` / `superadmin123`
+- **Admin**: `admin` / `admin123`
+
+## Deployment
+
+### Deploy to Vercel (Recommended)
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone)
+
+For detailed deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md)
+
+**Quick Deploy Steps:**
+1. Push your code to GitHub/GitLab/Bitbucket
+2. Import project in Vercel
+3. Add environment variables
+4. Deploy!
 
 ## Project Structure
 
 ```
 erp-app/
-├── app/                    # Next.js app directory
-│   ├── suppliers/         # Supplier management pages
-│   ├── supplier/          # Supplier portal
-│   ├── bom/              # BOM management
-│   ├── api/              # API routes
+├── app/                    # Next.js App Router
+│   ├── api/               # API routes
+│   ├── admin/             # Admin module
+│   ├── bom/               # Bill of Materials
+│   ├── crm/               # CRM module
+│   ├── dashboard/         # Dashboard
+│   ├── finance/           # Finance module
+│   ├── inventory/         # Inventory management
+│   ├── purchase/          # Purchase orders
 │   └── ...
-├── components/           # Reusable React components
-├── lib/                 # Utility libraries and database functions
-├── data/               # JSON data files
-│   ├── suppliers.json
-│   ├── bom_sends.json
-│   ├── bom_rates.json
-│   └── ...
+├── components/            # Reusable components
+├── lib/                   # Utility functions
+├── data/                  # JSON data files
+├── public/               # Static assets
 └── ...
 ```
 
-## Recent Enhancements
+## Available Scripts
 
-### Supplier Page Improvements
-- **Visual Statistics Dashboard**: Overview cards showing total suppliers, BOMs sent, quotes received, and response rates
-- **Enhanced Table View**: Improved supplier table with:
-  - Contact information grouping
-  - BOM and quote count badges
-  - Response rate indicators with color coding
-  - Action buttons for viewing BOMs and adding quotes
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
 
-### BOM Quote Comparison
-- **Advanced Comparison Modal**: Select any BOM to compare quotes from multiple suppliers
-- **Price Analysis**: Automatic calculation of lowest, highest, and average quotes
-- **Visual Indicators**: Best price highlighting and quote status badges
-- **Detailed Breakdowns**: Item-level pricing and lead time information
+## Modules
 
-### Quote Submission System
-- **Interactive Forms**: Suppliers can submit detailed quotes with:
-  - Per-item pricing and lead times
-  - Quote validity dates
-  - Additional notes and specifications
-- **Real-time Calculations**: Automatic total calculation as items are priced
-- **Status Tracking**: Visual indicators for quote submission status
+### CRM
+- Client management
+- Order tracking
+- Payment workflow
+- Order fulfillment
 
-### User Experience
-- **Toast Notifications**: Success/error feedback for quote submissions
-- **Responsive Design**: Mobile-friendly interface
-- **Loading States**: Proper loading indicators throughout the application
+### Inventory
+- Product management
+- Stock tracking
+- Product history
+- Receiving records
 
-## API Endpoints
+### Finance
+- Client orders
+- Payment confirmation
+- Invoice generation
 
-- `GET/POST /api/suppliers` - Supplier CRUD operations
-- `GET/POST /api/supplier/boms` - BOM retrieval for suppliers
-- `GET/POST /api/supplier/quotes` - Quote submission and retrieval
-- `GET/POST /api/bom-sends` - BOM distribution tracking
-- `GET/POST /api/bom-rates` - BOM rate management
+### Purchase
+- Purchase orders
+- Supplier management
+- BOM (Bill of Materials)
+- Quote management
 
-## Data Models
+## Environment Variables
 
-### Supplier
-```typescript
-{
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  createdAt: string;
-  updatedAt?: string;
-}
-```
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-side only) |
 
-### BOM Send
-```typescript
-{
-  id: string;
-  bomId: string;
-  bomNumber: string;
-  supplierId: string;
-  supplierName: string;
-  status: string;
-  sentAt: string;
-  items: BOMItem[];
-}
-```
+## Database Schema
 
-### Supplier Quote
-```typescript
-{
-  id: string;
-  bomSendId: string;
-  supplierId: string;
-  supplierName: string;
-  bomNumber: string;
-  items: QuoteItem[];
-  totalAmount: number;
-  validUntil?: string;
-  notes?: string;
-  submittedAt: string;
-  status: string;
-}
-```
+The application uses Supabase (PostgreSQL) with the following main tables:
+- `users` - User accounts and roles
+- `crm_orders` - Customer orders
+- `products` - Product catalog
+- `product_history` - Product change history
+- `clients` - Customer information
+- `suppliers` - Supplier information
+- `purchase_orders` - Purchase orders
+- `notifications` - System notifications
 
-## Learn More
+## Contributing
 
-To learn more about Next.js, take a look at the following resources:
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+ISC
 
-## Deploy on Vercel
+## Support
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For issues and questions, please open an issue on GitHub.

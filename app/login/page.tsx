@@ -91,7 +91,6 @@ export default function Login() {
           value={password}
           onChange={(e) => setPassword(e.currentTarget.value)}
           onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-          style={{ fontFamily: "Poppins, sans-serif" }}
         />
 
         {error && (
