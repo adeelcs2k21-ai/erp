@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Button } from "@mantine/core";
+import { Box, Button, Burger } from "@mantine/core";
 import { useEffect, useState } from "react";
 
 const pages = ["Dashboard", "Finance", "BOM", "Inventory", "Manufacturing", "Documentation", "Website", "CRM", "HR"];
@@ -9,7 +9,7 @@ const routes: { [key: string]: string } = {
   Dashboard: "/dashboard",
   CRM: "/crm",
   BOM: "/bom",
-  Purchase: "/bom", // Keep for backward compatibility
+  Purchase: "/bom",
   Manufacturing: "/manufacturing",
   HR: "/hr",
   Finance: "/finance",
@@ -24,70 +24,209 @@ interface NavigationProps {
 
 export function Navigation({ currentPage }: NavigationProps) {
   const [visiblePages, setVisiblePages] = useState<string[]>([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    // Get user from localStorage
     const userStr = localStorage.getItem("user");
     if (!userStr) return;
 
     const user = JSON.parse(userStr);
 
-    // Superadmin and admin see all pages
     if (user.role === "superadmin" || user.role === "admin") {
       setVisiblePages(pages);
     } else {
-      // Editors see their assigned modules
       let userModules = Array.isArray(user.modules) ? user.modules : [user.module];
-      // Convert old "Purchase" to new "BOM" for backward compatibility
       userModules = userModules.map((m: string) => m === "Purchase" ? "BOM" : m);
       setVisiblePages(userModules);
     }
   }, []);
 
+  const handleLogout = () => {
+    localStorage.removeItem("user");
+    window.location.href = "/login";
+  };
+
   return (
-    <Box
-      style={{
-        position: "fixed",
-        left: "120px",
-        top: "80px",
-        gap: "12px",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-      }}
-    >
-      {visiblePages.map((page) => (
-        <Button
-          key={page}
-          onClick={() => {
-            window.location.href = routes[page];
-          }}
-          variant="subtle"
+    <>
+      <style>{`
+        .sidebar {
+          position: fixed;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 240px;
+          background: #ffffff;
+          border-right: 1px solid #e0e0e0;
+          display: flex;
+          flex-direction: column;
+          z-index: 1000;
+          transition: transform 0.3s ease;
+        }
+        
+        .sidebar-header {
+          padding: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .sidebar-logo {
+          max-width: 100%;
+          height: auto;
+          max-height: 60px;
+        }
+        
+        .sidebar-nav {
+          flex: 1;
+          padding: 20px 0;
+          overflow-y: auto;
+        }
+        
+        .sidebar-footer {
+          padding: 20px;
+          border-top: 1px solid #e0e0e0;
+        }
+        
+        .nav-item {
+          display: block;
+          padding: 12px 20px;
+          color: #666;
+          font-size: 14px;
+          font-weight: 400;
+          text-decoration: none;
+          transition: all 0.2s ease;
+          cursor: pointer;
+          border: none;
+          background: transparent;
+          width: 100%;
+          text-align: left;
+          border-left: 3px solid transparent;
+        }
+        
+        .nav-item:hover {
+          background: #f8f9fa;
+          color: #000;
+        }
+        
+        .nav-item.active {
+          color: #000;
+          font-weight: 600;
+          background: #f0f0f0;
+          border-left-color: #000;
+        }
+        
+        .logout-btn {
+          width: 100%;
+          padding: 10px 16px;
+          background: #f8f9fa;
+          color: #dc3545;
+          border: 1px solid #e0e0e0;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        .logout-btn:hover {
+          background: #dc3545;
+          color: white;
+          border-color: #dc3545;
+        }
+        
+        .mobile-menu-button {
+          display: none;
+        }
+        
+        .mobile-menu-overlay {
+          display: none;
+        }
+        
+        @media (max-width: 768px) {
+          .sidebar {
+            transform: translateX(-100%);
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+          }
+          .sidebar.mobile-open {
+            transform: translateX(0);
+          }
+          .mobile-menu-button {
+            display: block !important;
+          }
+          .mobile-menu-overlay {
+            display: block !important;
+          }
+        }
+      `}</style>
+      
+      {/* Mobile Menu Button */}
+      <div
+        className="mobile-menu-button"
+        style={{
+          position: "fixed",
+          left: "20px",
+          top: "20px",
+          zIndex: 1001,
+          display: "none",
+        }}
+      >
+        <Burger
+          opened={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          size="md"
+          color="#000"
+        />
+      </div>
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="mobile-menu-overlay"
+          onClick={() => setMobileMenuOpen(false)}
           style={{
-            backgroundColor: "transparent",
-            color: currentPage === pages.indexOf(page) ? "#000" : "#999",
-            fontSize: "16px",
-            fontWeight: currentPage === pages.indexOf(page) ? "600" : "400",
-            padding: "0px 0",
-            textDecoration: "none",
-            transition: "all 0.2s ease",
-            border: "none",
-            cursor: "pointer",
-            lineHeight: "1",
-            height: "auto",
-            minHeight: "auto",
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            zIndex: 999,
+            display: "none",
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "#000";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color =
-              currentPage === pages.indexOf(page) ? "#000" : "#999";
-          }}
-        >
-          {page}
-        </Button>
-      ))}
-    </Box>
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
+        <div className="sidebar-header">
+          <img 
+            src="/images-removebg-preview.png" 
+            alt="Logo" 
+            className="sidebar-logo"
+          />
+        </div>
+        
+        <nav className="sidebar-nav">
+          {visiblePages.map((page) => (
+            <button
+              key={page}
+              onClick={() => {
+                window.location.href = routes[page];
+                setMobileMenuOpen(false);
+              }}
+              className={`nav-item ${currentPage === pages.indexOf(page) ? 'active' : ''}`}
+            >
+              {page}
+            </button>
+          ))}
+        </nav>
+        
+        <div className="sidebar-footer">
+          <button onClick={handleLogout} className="logout-btn">
+            Logout
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

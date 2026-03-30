@@ -62,6 +62,7 @@ function ClientOrdersPanel() {
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<string | null>("pending");
 
   const fetchData = async () => {
     const [or, cl] = await Promise.all([fetch("/api/crm/orders"), fetch("/api/crm/clients")]);
@@ -91,49 +92,83 @@ function ClientOrdersPanel() {
 
   return (
     <div style={{ fontFamily: "Poppins, sans-serif" }}>
-      {pending.length > 0 && (
-        <>
-          <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "12px", color: "#333" }}>Pending Approval ({pending.length})</Text>
-          <Table striped style={{ marginBottom: "24px" }}>
-            <Table.Thead><Table.Tr><Table.Th>Client</Table.Th><Table.Th>Product</Table.Th><Table.Th>Qty</Table.Th><Table.Th>Date</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {pending.map((o: any) => (
-                <Table.Tr key={o.id} style={{ cursor: "pointer" }} onClick={() => setSelected(o)}>
-                  <Table.Td style={{ fontWeight: "600", color: "#007bff" }}>{o.client_name}</Table.Td>
-                  <Table.Td>{o.product_name}</Table.Td>
-                  <Table.Td>{o.quantity} {o.unit}</Table.Td>
-                  <Table.Td style={{ fontSize: "12px", color: "#888" }}>{new Date(o.created_at).toLocaleDateString()}</Table.Td>
-                  <Table.Td onClick={(e: any) => e.stopPropagation()}>
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <Button size="xs" onClick={() => approve(o.id)} style={{ backgroundColor: "#28a745", color: "white" }}>Approve</Button>
-                      <Button size="xs" onClick={() => reject(o.id)} style={{ backgroundColor: "#dc3545", color: "white" }}>Reject</Button>
-                    </div>
-                  </Table.Td>
+      <Tabs value={activeTab} onChange={setActiveTab}>
+        <Tabs.List>
+          <Tabs.Tab value="pending" style={{ fontSize: "13px" }}>
+            Pending Approval ({pending.length})
+          </Tabs.Tab>
+          <Tabs.Tab value="all" style={{ fontSize: "13px" }}>
+            All Orders ({rest.length})
+          </Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="pending" pt="md">
+          {pending.length === 0 ? (
+            <Text style={{ color: "#999", fontSize: "14px", textAlign: "center", padding: "40px" }}>
+              No pending orders.
+            </Text>
+          ) : (
+            <Table striped>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Client</Table.Th>
+                  <Table.Th>Product</Table.Th>
+                  <Table.Th>Qty</Table.Th>
+                  <Table.Th>Date</Table.Th>
+                  <Table.Th>Actions</Table.Th>
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </>
-      )}
-      {rest.length > 0 && (
-        <>
-          <Text style={{ fontSize: "14px", fontWeight: "600", marginBottom: "12px", color: "#333" }}>All Orders</Text>
-          <Table striped>
-            <Table.Thead><Table.Tr><Table.Th>Client</Table.Th><Table.Th>Product</Table.Th><Table.Th>Qty</Table.Th><Table.Th>Status</Table.Th><Table.Th>Date</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {rest.map((o: any) => (
-                <Table.Tr key={o.id} style={{ cursor: "pointer" }} onClick={() => setSelected(o)}>
-                  <Table.Td style={{ fontWeight: "600", color: "#007bff" }}>{o.client_name}</Table.Td>
-                  <Table.Td>{o.product_name}</Table.Td>
-                  <Table.Td>{o.quantity} {o.unit}</Table.Td>
-                  <Table.Td><Badge color={o.status === "approved" ? "green" : "red"}>{o.status}</Badge></Table.Td>
-                  <Table.Td style={{ fontSize: "12px", color: "#888" }}>{new Date(o.created_at).toLocaleDateString()}</Table.Td>
+              </Table.Thead>
+              <Table.Tbody>
+                {pending.map((o: any) => (
+                  <Table.Tr key={o.id} style={{ cursor: "pointer" }} onClick={() => setSelected(o)}>
+                    <Table.Td style={{ fontWeight: "600", color: "#007bff" }}>{o.client_name}</Table.Td>
+                    <Table.Td>{o.product_name}</Table.Td>
+                    <Table.Td>{o.quantity} {o.unit}</Table.Td>
+                    <Table.Td style={{ fontSize: "12px", color: "#888" }}>{new Date(o.created_at).toLocaleDateString()}</Table.Td>
+                    <Table.Td onClick={(e: any) => e.stopPropagation()}>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <Button size="xs" onClick={() => approve(o.id)} style={{ backgroundColor: "#28a745", color: "white" }}>Approve</Button>
+                        <Button size="xs" onClick={() => reject(o.id)} style={{ backgroundColor: "#dc3545", color: "white" }}>Reject</Button>
+                      </div>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          )}
+        </Tabs.Panel>
+
+        <Tabs.Panel value="all" pt="md">
+          {rest.length === 0 ? (
+            <Text style={{ color: "#999", fontSize: "14px", textAlign: "center", padding: "40px" }}>
+              No orders yet.
+            </Text>
+          ) : (
+            <Table striped>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Client</Table.Th>
+                  <Table.Th>Product</Table.Th>
+                  <Table.Th>Qty</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Date</Table.Th>
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </>
-      )}
+              </Table.Thead>
+              <Table.Tbody>
+                {rest.map((o: any) => (
+                  <Table.Tr key={o.id} style={{ cursor: "pointer" }} onClick={() => setSelected(o)}>
+                    <Table.Td style={{ fontWeight: "600", color: "#007bff" }}>{o.client_name}</Table.Td>
+                    <Table.Td>{o.product_name}</Table.Td>
+                    <Table.Td>{o.quantity} {o.unit}</Table.Td>
+                    <Table.Td><Badge color={o.status === "approved" ? "green" : "red"}>{o.status}</Badge></Table.Td>
+                    <Table.Td style={{ fontSize: "12px", color: "#888" }}>{new Date(o.created_at).toLocaleDateString()}</Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          )}
+        </Tabs.Panel>
+      </Tabs>
 
       <Modal opened={!!selected} onClose={() => setSelected(null)} title="" size="md" styles={{ header: { display: "none" }, body: { padding: 0 } }}>
         {selected && (

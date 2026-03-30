@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { LogoutButton } from "@/components/LogoutButton";
 import { Navigation } from "@/components/Navigation";
 import { Box, Button, Table, Modal, TextInput, Textarea, Select, NumberInput, Text, Tabs } from "@mantine/core";
 
@@ -71,8 +72,6 @@ export default function CRMPage() {
   const [showClientDetailModal, setShowClientDetailModal] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientDetailTab, setClientDetailTab] = useState<string | null>("info");
-  const [showNewOrderModal, setShowNewOrderModal] = useState(false);
-  const [newOrderData, setNewOrderData] = useState({ clientId: "", productId: "", itemName: "", quantity: 1, unit: "pieces", notes: "" });
 
   useEffect(() => {
     loadData();
@@ -175,51 +174,6 @@ export default function CRMPage() {
     }
   };
 
-  const handleCreateNewOrder = async () => {
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    
-    if (!newOrderData.clientId || !newOrderData.itemName || !newOrderData.quantity) {
-      alert("Please fill in all required fields");
-      return;
-    }
-
-    const selectedClient = clients.find(c => c.id === newOrderData.clientId);
-    
-    if (!selectedClient) {
-      alert("Invalid client selection");
-      return;
-    }
-
-    // Get unit from selected product if productId exists, otherwise use manual unit
-    let finalUnit = newOrderData.unit;
-    if (newOrderData.productId) {
-      const selectedProduct = products.find(p => p.id === newOrderData.productId);
-      if (selectedProduct) {
-        finalUnit = selectedProduct.unit;
-      }
-    }
-
-    await fetch("/api/crm/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId: newOrderData.clientId,
-        clientName: selectedClient.name,
-        productName: newOrderData.itemName,
-        quantity: newOrderData.quantity,
-        unit: finalUnit,
-        unitPrice: 0,
-        notes: newOrderData.notes,
-        createdBy: user.username
-      })
-    });
-
-    setShowNewOrderModal(false);
-    setNewOrderData({ clientId: "", productId: "", itemName: "", quantity: 1, unit: "pieces", notes: "" });
-    loadOrders();
-    alert("Order created successfully and sent for approval!");
-  };
-
   const pendingOrders = (orders || []).filter(o => o.status === "pending");
   const approvedOrders = (orders || []).filter(o => o.status === "approved" || o.status === "sent_to_finance" || o.status === "po_sent" || o.status === "payment_confirmed" || o.status === "fulfilled");
 
@@ -243,62 +197,53 @@ export default function CRMPage() {
   return (
     <ProtectedRoute>
       <style>{`
-        .crm-main-container {
+        .crm-container {
           width: 100%;
           min-height: 100vh;
           background-color: white;
+          display: flex;
+          flex-direction: row;
           font-family: Poppins, sans-serif;
+          padding: 40px;
         }
-        
-        .crm-content-wrapper {
-          padding: 20px;
-          margin-left: 240px;
-          max-width: 1400px;
+        .crm-content {
+          margin-left: 200px;
+          flex: 1;
+          padding-bottom: 100px;
+          max-width: 100%;
         }
-        
-        .crm-content-box {
+        .crm-box {
           border: 1px solid #ccc;
           border-radius: 4px;
           padding: 30px;
           margin-top: 40px;
+          min-height: 600px;
+          position: relative;
+          background: white;
         }
-        
-        @media (max-width: 1024px) {
-          .crm-content-wrapper {
-            max-width: 100%;
-          }
-        }
-        
         @media (max-width: 768px) {
-          .crm-content-wrapper {
+          .crm-container {
+            padding: 16px;
+            flex-direction: column;
+          }
+          .crm-content {
             margin-left: 0;
-            padding: 16px;
-            padding-top: 70px;
+            padding: 0;
+            padding-bottom: 100px;
           }
-          
-          .crm-content-box {
+          .crm-box {
+            width: 100%;
+            margin-top: 60px;
+            padding: 16px;
             border: none;
-            padding: 16px;
-            margin-top: 0;
-          }
-        }
-        
-        @media (max-width: 480px) {
-          .crm-content-wrapper {
-            padding: 12px;
-          }
-          
-          .crm-content-box {
-            padding: 12px;
           }
         }
       `}</style>
-      
-      <div className="crm-main-container">
+      <Box className="crm-container">
         <Navigation currentPage={currentPage} />
 
-        <div className="crm-content-wrapper">
-          <div className="crm-content-box">
+        <Box className="crm-content">
+          <Box className="crm-box">
             <Text style={{ fontSize: "18px", fontWeight: "500", fontFamily: "Poppins, sans-serif", marginBottom: "24px" }}>
               CRM - Customer Relationship Management
             </Text>
@@ -417,23 +362,6 @@ export default function CRMPage() {
               </Tabs.Panel>
 
               <Tabs.Panel value="orders" pt="md">
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
-                  <button
-                    onClick={() => setShowNewOrderModal(true)}
-                    style={{
-                      padding: "8px 16px",
-                      backgroundColor: "white",
-                      color: "#000",
-                      border: "1px solid #e0e0e0",
-                      fontSize: "13px",
-                      fontWeight: "400",
-                      cursor: "pointer",
-                    }}
-                  >
-                    + New Order
-                  </button>
-                </div>
-                
                 <Tabs value={orderSubTab} onChange={setOrderSubTab}>
                   <Tabs.List>
                     <Tabs.Tab value="pending" style={{ fontSize: "13px" }}>
@@ -1091,124 +1019,10 @@ export default function CRMPage() {
             </div>
           )}
         </Modal>
-
-        <Modal opened={showNewOrderModal} onClose={() => { setShowNewOrderModal(false); setNewOrderData({ clientId: "", productId: "", itemName: "", quantity: 1, unit: "pieces", notes: "" }); }} title="Create New Order" size="md">
-          <div style={{ fontFamily: "Poppins, sans-serif" }}>
-            <div style={{ marginBottom: "16px" }}>
-              <Text style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Select Client</Text>
-              <Select 
-                placeholder="Choose a client"
-                data={clients.map(c => ({ value: c.id, label: `${c.name}${c.company ? ' - ' + c.company : ''}` }))} 
-                value={newOrderData.clientId} 
-                onChange={(val) => setNewOrderData({ ...newOrderData, clientId: val || "" })}
-                searchable
-                required
-              />
-            </div>
-
-            <div style={{ marginBottom: "16px" }}>
-              <Text style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Item/Product Name</Text>
-              <Select 
-                placeholder="Select a product or type custom item"
-                data={[
-                  { value: "custom", label: "➕ Custom Item (Type Below)" },
-                  ...products.map(p => ({ 
-                    value: p.id, 
-                    label: `${p.name} (Stock: ${p.stock} ${p.unit})` 
-                  }))
-                ]} 
-                value={newOrderData.productId || undefined}
-                onChange={(val) => {
-                  if (val === "custom") {
-                    setNewOrderData({ ...newOrderData, productId: "", itemName: "" });
-                  } else if (val) {
-                    const product = products.find(p => p.id === val);
-                    if (product) {
-                      setNewOrderData({ 
-                        ...newOrderData, 
-                        productId: val, 
-                        itemName: product.name,
-                        unit: product.unit 
-                      });
-                    }
-                  }
-                }}
-                searchable
-                required
-              />
-              
-              {(!newOrderData.productId || newOrderData.productId === "custom") && (
-                <TextInput 
-                  placeholder="e.g., Gaming Mouse RGB"
-                  value={newOrderData.itemName} 
-                  onChange={(e) => setNewOrderData({ ...newOrderData, itemName: e.target.value, productId: "" })}
-                  required
-                  style={{ marginTop: "8px" }}
-                />
-              )}
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "12px", marginBottom: "16px" }}>
-              <div>
-                <Text style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Quantity</Text>
-                <NumberInput 
-                  placeholder="Enter quantity"
-                  value={newOrderData.quantity} 
-                  onChange={(val) => setNewOrderData({ ...newOrderData, quantity: Number(val) || 1 })} 
-                  min={1}
-                  required
-                />
-              </div>
-
-              <div>
-                <Text style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Unit</Text>
-                <Select 
-                  data={[
-                    { value: "pieces", label: "Pieces" },
-                    { value: "kg", label: "KG" },
-                    { value: "lbs", label: "LBS" },
-                    { value: "meters", label: "Meters" },
-                    { value: "liters", label: "Liters" },
-                    { value: "boxes", label: "Boxes" },
-                    { value: "cartons", label: "Cartons" },
-                    { value: "units", label: "Units" },
-                  ]} 
-                  value={newOrderData.unit} 
-                  onChange={(val) => setNewOrderData({ ...newOrderData, unit: val || "pieces" })}
-                  disabled={!!newOrderData.productId && newOrderData.productId !== "custom"}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: "16px" }}>
-              <Text style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Order Notes (Optional)</Text>
-              <Textarea 
-                placeholder="Add any special requirements, delivery instructions, or notes..."
-                value={newOrderData.notes} 
-                onChange={(e) => setNewOrderData({ ...newOrderData, notes: e.target.value })} 
-                rows={3}
-              />
-            </div>
-
-            <div style={{ backgroundColor: "#f0f7ff", padding: "12px", borderRadius: "6px", marginBottom: "20px", border: "1px solid #d0e7ff" }}>
-              <Text style={{ fontSize: "11px", color: "#0066cc", lineHeight: "1.5" }}>
-                ℹ️ This order will be sent to superadmin for approval. Pricing details will be added after approval.
-              </Text>
-            </div>
-
-            <Button 
-              onClick={handleCreateNewOrder} 
-              fullWidth 
-              style={{ backgroundColor: "#000", color: "#fff", padding: "10px" }}
-              disabled={!newOrderData.clientId || !newOrderData.itemName || !newOrderData.quantity}
-            >
-              Create Order
-            </Button>
-          </div>
-        </Modal>
-          </div>
-        </div>
-      </div>
+          </Box>
+        </Box>
+        <LogoutButton />
+      </Box>
     </ProtectedRoute>
   );
 }

@@ -14,16 +14,22 @@ function ClientOrdersPanel() {
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [modalTab, setModalTab] = useState<string | null>("details");
   const [paymentDetails, setPaymentDetails] = useState({ amount: 0, method: "", screenshot: "", notes: "" });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadClientOrders();
-    loadClients();
+    loadData();
   }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    await Promise.all([loadClientOrders(), loadClients()]);
+    setLoading(false);
+  };
 
   const loadClientOrders = async () => {
     const res = await fetch("/api/crm/orders");
     const data = await res.json();
-    setClientOrders(data.filter((o: any) => o.status === "sent_to_finance" || o.status === "po_sent" || o.status === "payment_confirmed"));
+    setClientOrders(data.filter((o: any) => o.status === "sent_to_finance" || o.status === "po_sent" || o.status === "payment_confirmed" || o.status === "fulfilled"));
   };
 
   const loadClients = async () => {
@@ -59,7 +65,22 @@ function ClientOrdersPanel() {
   };
 
   const pendingOrders = clientOrders.filter(o => o.status === "sent_to_finance" || o.status === "po_sent");
-  const approvedOrders = clientOrders.filter(o => o.status === "payment_confirmed");
+  const approvedOrders = clientOrders.filter(o => o.status === "payment_confirmed" || o.status === "fulfilled");
+
+  if (loading) {
+    return (
+      <div style={{ fontFamily: "Poppins, sans-serif", display: "flex", justifyContent: "center", alignItems: "center", minHeight: "400px", flexDirection: "column" }}>
+        <div style={{ width: "40px", height: "40px", border: "4px solid #f3f3f3", borderTop: "4px solid #000", borderRadius: "50%", animation: "spin 1s linear infinite" }}></div>
+        <Text style={{ marginTop: "16px", fontSize: "14px", color: "#666" }}>Loading orders...</Text>
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: "Poppins, sans-serif" }}>
@@ -162,7 +183,7 @@ function ClientOrdersPanel() {
                 {selectedOrder.status === "po_sent" && selectedOrder.po_sent_at && (
                   <Tabs.Tab value="payment" style={{ fontSize: "13px" }}>Add Payment</Tabs.Tab>
                 )}
-                {selectedOrder.status === "payment_confirmed" && (
+                {(selectedOrder.status === "payment_confirmed" || selectedOrder.status === "fulfilled") && selectedOrder.payment_confirmed_at && (
                   <Tabs.Tab value="payment-details" style={{ fontSize: "13px" }}>Payment Details</Tabs.Tab>
                 )}
               </Tabs.List>

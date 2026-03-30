@@ -1608,12 +1608,29 @@ export default function Inventory() {
                   </div>
 
                   <div style={{ backgroundColor: "#fff3cd", padding: "12px", borderRadius: "6px", marginBottom: "16px", fontSize: "13px", color: "#856404" }}>
-                    <strong>⚠️ Action Required:</strong> This order is ready to be fulfilled. Fulfilling will deduct {selectedClientOrder.quantity} {selectedClientOrder.unit} from inventory stock.
+                    <strong>⚠️ Action Required:</strong> This order is ready to be fulfilled.
+                    {(() => {
+                      const matchingProduct = products.find(p => p.name.toLowerCase() === selectedClientOrder.product_name.toLowerCase());
+                      if (matchingProduct) {
+                        return ` Fulfilling will deduct ${selectedClientOrder.quantity} ${selectedClientOrder.unit} from inventory stock.`;
+                      } else {
+                        return ` This is a custom product not in inventory - no stock will be deducted.`;
+                      }
+                    })()}
                   </div>
                   
                   <Button 
                     onClick={async () => {
-                      if (!confirm(`Mark this order as fulfilled?\n\nThis will:\n- Deduct ${selectedClientOrder.quantity} ${selectedClientOrder.unit} from inventory\n- Record this transaction in product history\n- Generate departure report`)) return;
+                      const matchingProduct = products.find(p => p.name.toLowerCase() === selectedClientOrder.product_name.toLowerCase());
+                      
+                      let confirmMessage = `Mark this order as fulfilled?\n\n`;
+                      if (matchingProduct) {
+                        confirmMessage += `This will:\n- Deduct ${selectedClientOrder.quantity} ${selectedClientOrder.unit} from inventory\n- Record this transaction in product history\n- Generate departure report`;
+                      } else {
+                        confirmMessage += `This is a custom product.\n\nThis will:\n- Mark the order as fulfilled\n- Generate departure report\n- No inventory stock will be deducted`;
+                      }
+                      
+                      if (!confirm(confirmMessage)) return;
                       
                       try {
                         // Update order status
