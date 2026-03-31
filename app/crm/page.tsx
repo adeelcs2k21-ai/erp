@@ -952,7 +952,7 @@ export default function CRMPage() {
                   <div style={{ backgroundColor: "#d4edda", padding: "12px", borderRadius: "6px", marginBottom: "16px", fontSize: "12px", color: "#155724", textAlign: "center" }}>
                     <div style={{ fontWeight: "600", marginBottom: "4px" }}>✓ Payment Confirmed</div>
                     <div style={{ fontSize: "11px" }}>
-                      Confirmed by {selectedOrder.payment_confirmed_by} on {new Date(selectedOrder.payment_confirmed_at).toLocaleString()}
+                      Confirmed by {selectedOrder.payment_confirmed_by} on {selectedOrder.payment_confirmed_at ? new Date(selectedOrder.payment_confirmed_at).toLocaleString() : "—"}
                     </div>
                   </div>
 
