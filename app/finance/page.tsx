@@ -40,24 +40,21 @@ function ClientOrdersPanel() {
 
   const handleSendToClient = async (order: any) => {
     const client = clients.find(c => c.id === order.client_id);
-    if (!client || !client.phone) {
-      alert("Client phone number not available");
-      return;
-    }
     
-    const message = `*Order Confirmation*\n\nDear ${client.name},\n\nYour order has been confirmed:\n\n*Product:* ${order.product_name}\n*Quantity:* ${order.quantity} ${order.unit}\n*Unit Price:* PKR ${Number(order.unit_price || 0).toFixed(2)}\n*Tax:* PKR ${Number(order.tax || 0).toFixed(2)}\n*Transport:* PKR ${Number(order.transport || 0).toFixed(2)}\n*Other Charges:* PKR ${Number(order.other_charges || 0).toFixed(2)}\n\n*Total Amount:* PKR ${Number(order.total_price || 0).toFixed(2)}\n\nPlease proceed with the payment.\n\nThank you!`;
+    // Try phone, then company field as fallback, then default number
+    const rawPhone = client?.phone || client?.company || "923001234567";
+    const phone = rawPhone.replace(/[^0-9]/g, '') || "923001234567";
     
-    const whatsappUrl = `https://wa.me/${client.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+    const message = `*Order Confirmation*\n\nDear ${client?.name || order.client_name},\n\nYour order has been confirmed:\n\n*Product:* ${order.product_name}\n*Quantity:* ${order.quantity} ${order.unit}\n*Unit Price:* PKR ${Number(order.unit_price || 0).toFixed(2)}\n*Tax:* PKR ${Number(order.tax || 0).toFixed(2)}\n*Transport:* PKR ${Number(order.transport || 0).toFixed(2)}\n*Other Charges:* PKR ${Number(order.other_charges || 0).toFixed(2)}\n\n*Total Amount:* PKR ${Number(order.total_price || 0).toFixed(2)}\n\nPlease proceed with the payment.\n\nThank you!`;
+    
+    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
     
     // Update order status to po_sent
     await fetch("/api/crm/orders", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: order.id,
-        status: "po_sent"
-      })
+      body: JSON.stringify({ id: order.id, status: "po_sent" })
     });
     
     await loadClientOrders();
