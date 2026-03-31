@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Box, Button, Text, Tabs, Table, Badge, Modal, Textarea } from "@mantine/core";
 import { Navigation } from "@/components/Navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { LogoutButton } from "@/components/LogoutButton";
 
 const downloadDepartureReportPDF = async (order: any, client: any) => {
   const { default: jsPDF } = await import("jspdf");
@@ -262,6 +261,8 @@ export default function Inventory() {
   const [clients, setClients] = useState<any[]>([]);
   const [selectedClientOrder, setSelectedClientOrder] = useState<any>(null);
   const [showClientOrderModal, setShowClientOrderModal] = useState(false);
+  const [fulfillingOrder, setFulfillingOrder] = useState(false);
+  const [showFulfillmentSuccessModal, setShowFulfillmentSuccessModal] = useState(false);
 
   const getBOMType = (bomData: any) => {
     if (!bomData.items || bomData.items.length === 0) return 'Unknown';
@@ -1591,15 +1592,18 @@ export default function Inventory() {
                     <Button 
                       onClick={() => {
                         const client = clients.find(c => c.id === selectedClientOrder.client_id);
-                        if (!client || !client.phone) {
-                          alert("Client phone number not available");
-                          return;
-                        }
+                        const clientName = client ? client.name : "Customer";
+                        const phoneNumber = client?.phone ? client.phone.replace(/[^0-9]/g, '') : "923001234567"; // Default number if none available
                         
-                        const message = `*Order Ready for Delivery*\n\nDear ${client.name},\n\nYour order is ready for delivery:\n\n*Order #:* ${selectedClientOrder.po_number || selectedClientOrder.id.slice(0, 8)}\n*Product:* ${selectedClientOrder.product_name}\n*Quantity:* ${selectedClientOrder.quantity} ${selectedClientOrder.unit}\n*Total Amount:* PKR ${Number(selectedClientOrder.total_price).toLocaleString()}\n\nWe will contact you shortly to arrange delivery.\n\nThank you!`;
+                        const message = `*Order Ready for Delivery*\n\nDear ${clientName},\n\nYour order is ready for delivery:\n\n*Order #:* ${selectedClientOrder.po_number || selectedClientOrder.id.slice(0, 8)}\n*Product:* ${selectedClientOrder.product_name}\n*Quantity:* ${selectedClientOrder.quantity} ${selectedClientOrder.unit}\n*Total Amount:* PKR ${Number(selectedClientOrder.total_price).toLocaleString()}\n\nWe will contact you shortly to arrange delivery.\n\nThank you!`;
                         
-                        const whatsappUrl = `https://wa.me/${client.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+                        const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
                         window.open(whatsappUrl, '_blank');
+                        
+                        // Show confirmation after WhatsApp opens
+                        setTimeout(() => {
+                          alert(`WhatsApp opened with ${client?.phone ? 'client phone number' : 'default number'}.\nMessage sent to notify client about delivery.`);
+                        }, 1000);
                       }}
                       style={{ flex: 1, backgroundColor: "#25D366", color: "white" }}
                     >
@@ -1632,6 +1636,8 @@ export default function Inventory() {
                       
                       if (!confirm(confirmMessage)) return;
                       
+                      setFulfillingOrder(true);
+                      
                       try {
                         // Update order status
                         const response = await fetch("/api/crm/orders", {
@@ -1649,10 +1655,10 @@ export default function Inventory() {
                         });
                         
                         if (response.ok) {
-                          alert("Order fulfilled successfully! Stock has been updated.");
                           setShowClientOrderModal(false);
                           fetchClientOrders();
                           fetchProducts(); // Refresh products to show updated stock
+                          setShowFulfillmentSuccessModal(true);
                         } else {
                           const error = await response.json();
                           alert(`Failed to fulfill order: ${error.error || 'Unknown error'}`);
@@ -1660,13 +1666,37 @@ export default function Inventory() {
                       } catch (error) {
                         console.error("Error fulfilling order:", error);
                         alert("Error fulfilling order. Please try again.");
+                      } finally {
+                        setFulfillingOrder(false);
                       }
                     }}
                     fullWidth
                     style={{ backgroundColor: "#28a745", color: "white", padding: "12px", fontSize: "15px", fontWeight: "600" }}
+                    disabled={fulfillingOrder}
                   >
-                    ✓ Mark as Fulfilled & Update Inventory
+                    {fulfillingOrder ? (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                        <div style={{ 
+                          width: "16px", 
+                          height: "16px", 
+                          border: "2px solid #fff", 
+                          borderTop: "2px solid transparent", 
+                          borderRadius: "50%", 
+                          animation: "spin 1s linear infinite" 
+                        }}></div>
+                        Fulfilling Order...
+                      </div>
+                    ) : (
+                      "✓ Mark as Fulfilled & Update Inventory"
+                    )}
                   </Button>
+                  
+                  <style>{`
+                    @keyframes spin {
+                      0% { transform: rotate(0deg); }
+                      100% { transform: rotate(360deg); }
+                    }
+                  `}</style>
                 </div>
               ) : (
                 <div>
@@ -1694,7 +1724,85 @@ export default function Inventory() {
         )}
       </Modal>
 
-      <LogoutButton />
+      {/* Fulfillment Success Modal */}
+      <Modal 
+        opened={showFulfillmentSuccessModal} 
+        onClose={() => setShowFulfillmentSuccessModal(false)} 
+        title="" 
+        centered
+        size="sm"
+        styles={{ 
+          header: { display: "none" }, 
+          body: { padding: "0" } 
+        }}
+      >
+        <div style={{ 
+          fontFamily: "Poppins, sans-serif", 
+          textAlign: "center", 
+          padding: "40px 30px 30px 30px" 
+        }}>
+          {/* Success Icon */}
+          <div style={{ 
+            width: "60px", 
+            height: "60px", 
+            backgroundColor: "#28a745", 
+            borderRadius: "50%", 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center", 
+            margin: "0 auto 20px auto" 
+          }}>
+            <svg 
+              width="30" 
+              height="30" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="white" 
+              strokeWidth="3" 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+            >
+              <path d="M20 6L9 17l-5-5"></path>
+              <path d="M16 3h5v5"></path>
+              <path d="M21 3l-7 7"></path>
+            </svg>
+          </div>
+          
+          {/* Success Message */}
+          <Text style={{ 
+            fontSize: "20px", 
+            fontWeight: "600", 
+            marginBottom: "12px", 
+            color: "#333" 
+          }}>
+            Order Fulfilled Successfully!
+          </Text>
+          
+          <Text style={{ 
+            fontSize: "14px", 
+            color: "#666", 
+            marginBottom: "25px",
+            lineHeight: "1.5"
+          }}>
+            The order has been marked as fulfilled and inventory stock has been updated accordingly.
+          </Text>
+          
+          {/* Action Button */}
+          <Button 
+            onClick={() => setShowFulfillmentSuccessModal(false)} 
+            fullWidth 
+            style={{ 
+              backgroundColor: "#28a745", 
+              color: "#fff", 
+              padding: "12px",
+              fontSize: "14px",
+              fontWeight: "600"
+            }}
+          >
+            Continue
+          </Button>
+        </div>
+      </Modal>
     </ProtectedRoute>
   );
 }

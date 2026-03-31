@@ -59,7 +59,7 @@ export function Navigation({ currentPage }: NavigationProps) {
           border-right: 1px solid #e0e0e0;
           display: flex;
           flex-direction: column;
-          z-index: 1000;
+          z-index: 100;
           transition: transform 0.3s ease;
         }
         
@@ -166,7 +166,7 @@ export function Navigation({ currentPage }: NavigationProps) {
           position: "fixed",
           left: "20px",
           top: "20px",
-          zIndex: 1001,
+          zIndex: 101,
           display: "none",
         }}
       >
@@ -190,7 +190,7 @@ export function Navigation({ currentPage }: NavigationProps) {
             right: 0,
             bottom: 0,
             backgroundColor: "rgba(0, 0, 0, 0.5)",
-            zIndex: 999,
+            zIndex: 99,
             display: "none",
           }}
         />

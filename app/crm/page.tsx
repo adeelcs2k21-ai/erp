@@ -73,6 +73,10 @@ export default function CRMPage() {
   const [clientDetailTab, setClientDetailTab] = useState<string | null>("info");
   const [showNewOrderModal, setShowNewOrderModal] = useState(false);
   const [newOrderData, setNewOrderData] = useState({ clientId: "", productId: "", itemName: "", quantity: 1, unit: "pieces", notes: "" });
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
+  const [sendingToFinance, setSendingToFinance] = useState(false);
+  const [showFinanceSuccessModal, setShowFinanceSuccessModal] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -190,34 +194,45 @@ export default function CRMPage() {
       return;
     }
 
-    // Get unit from selected product if productId exists, otherwise use manual unit
-    let finalUnit = newOrderData.unit;
-    if (newOrderData.productId) {
-      const selectedProduct = products.find(p => p.id === newOrderData.productId);
-      if (selectedProduct) {
-        finalUnit = selectedProduct.unit;
+    setCreatingOrder(true);
+
+    try {
+      // Get unit from selected product if productId exists, otherwise use manual unit
+      let finalUnit = newOrderData.unit;
+      if (newOrderData.productId) {
+        const selectedProduct = products.find(p => p.id === newOrderData.productId);
+        if (selectedProduct) {
+          finalUnit = selectedProduct.unit;
+        }
       }
+
+      await fetch("/api/crm/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: newOrderData.clientId,
+          clientName: selectedClient.name,
+          productName: newOrderData.itemName,
+          quantity: newOrderData.quantity,
+          unit: finalUnit,
+          unitPrice: 0,
+          notes: newOrderData.notes,
+          createdBy: user.username
+        })
+      });
+
+      setShowNewOrderModal(false);
+      setNewOrderData({ clientId: "", productId: "", itemName: "", quantity: 1, unit: "pieces", notes: "" });
+      loadOrders();
+      
+      // Show custom success modal
+      setShowOrderSuccessModal(true);
+    } catch (error) {
+      console.error("Error creating order:", error);
+      alert("Failed to create order. Please try again.");
+    } finally {
+      setCreatingOrder(false);
     }
-
-    await fetch("/api/crm/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId: newOrderData.clientId,
-        clientName: selectedClient.name,
-        productName: newOrderData.itemName,
-        quantity: newOrderData.quantity,
-        unit: finalUnit,
-        unitPrice: 0,
-        notes: newOrderData.notes,
-        createdBy: user.username
-      })
-    });
-
-    setShowNewOrderModal(false);
-    setNewOrderData({ clientId: "", productId: "", itemName: "", quantity: 1, unit: "pieces", notes: "" });
-    loadOrders();
-    alert("Order created successfully and sent for approval!");
   };
 
   const pendingOrders = (orders || []).filter(o => o.status === "pending");
@@ -516,8 +531,16 @@ export default function CRMPage() {
                                     <button 
                                       onClick={() => {
                                         setSelectedOrder(order);
+                                        
+                                        // Try to find the product price from products array
+                                        const matchingProduct = products.find(p => 
+                                          p.name.toLowerCase() === order.product_name.toLowerCase()
+                                        );
+                                        
+                                        const defaultUnitPrice = matchingProduct ? matchingProduct.price : (order.unit_price || 0);
+                                        
                                         setPricingDetails({ 
-                                          unitPrice: order.unit_price || 0, 
+                                          unitPrice: defaultUnitPrice, 
                                           tax: 0, 
                                           transport: 0,
                                           other: 0,
@@ -645,6 +668,29 @@ export default function CRMPage() {
                 styles={{ label: { fontSize: "13px", fontWeight: "600" } }}
                 required
               />
+              
+              {(() => {
+                const matchingProduct = products.find(p => 
+                  p.name.toLowerCase() === selectedOrder.product_name.toLowerCase()
+                );
+                
+                if (matchingProduct && pricingDetails.unitPrice === matchingProduct.price) {
+                  return (
+                    <div style={{ 
+                      backgroundColor: "#e8f5e9", 
+                      padding: "8px 12px", 
+                      borderRadius: "4px", 
+                      marginTop: "6px",
+                      fontSize: "11px",
+                      color: "#2e7d32"
+                    }}>
+                      ✓ Price auto-loaded from product catalog (PKR {matchingProduct.price.toLocaleString()})
+                    </div>
+                  );
+                }
+                
+                return null;
+              })()}
 
               <NumberInput 
                 label="Tax (PKR)" 
@@ -716,39 +762,70 @@ export default function CRMPage() {
                     return;
                   }
                   
-                  const totalPrice = (pricingDetails.unitPrice * selectedOrder.quantity) + pricingDetails.tax + pricingDetails.transport + pricingDetails.other;
+                  setSendingToFinance(true);
                   
-                  const response = await fetch("/api/crm/orders", {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      id: selectedOrder.id,
-                      status: "sent_to_finance",
-                      unitPrice: pricingDetails.unitPrice,
-                      totalPrice: totalPrice,
-                      tax: pricingDetails.tax,
-                      transport: pricingDetails.transport,
-                      otherCharges: pricingDetails.other,
-                      otherChargesNotes: pricingDetails.otherNotes
-                    })
-                  });
-                  
-                  if (response.ok) {
-                    setShowPricingModal(false);
-                    setSelectedOrder(null);
-                    setPricingDetails({ unitPrice: 0, tax: 0, transport: 0, other: 0, otherNotes: "" });
-                    await loadOrders();
-                    alert("Order sent to finance successfully!");
-                  } else {
-                    alert("Failed to update order. Please try again.");
+                  try {
+                    const totalPrice = (pricingDetails.unitPrice * selectedOrder.quantity) + pricingDetails.tax + pricingDetails.transport + pricingDetails.other;
+                    
+                    const response = await fetch("/api/crm/orders", {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        id: selectedOrder.id,
+                        status: "sent_to_finance",
+                        unitPrice: pricingDetails.unitPrice,
+                        totalPrice: totalPrice,
+                        tax: pricingDetails.tax,
+                        transport: pricingDetails.transport,
+                        otherCharges: pricingDetails.other,
+                        otherChargesNotes: pricingDetails.otherNotes
+                      })
+                    });
+                    
+                    if (response.ok) {
+                      setShowPricingModal(false);
+                      setSelectedOrder(null);
+                      setPricingDetails({ unitPrice: 0, tax: 0, transport: 0, other: 0, otherNotes: "" });
+                      await loadOrders();
+                      setShowFinanceSuccessModal(true);
+                    } else {
+                      alert("Failed to update order. Please try again.");
+                    }
+                  } catch (error) {
+                    console.error("Error sending to finance:", error);
+                    alert("Failed to send order to finance. Please try again.");
+                  } finally {
+                    setSendingToFinance(false);
                   }
                 }}
                 mt="xl"
                 fullWidth
                 style={{ backgroundColor: "#6f42c1", color: "white" }}
+                disabled={sendingToFinance}
               >
-                Send to Finance
+                {sendingToFinance ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                    <div style={{ 
+                      width: "16px", 
+                      height: "16px", 
+                      border: "2px solid #fff", 
+                      borderTop: "2px solid transparent", 
+                      borderRadius: "50%", 
+                      animation: "spin 1s linear infinite" 
+                    }}></div>
+                    Sending to Finance...
+                  </div>
+                ) : (
+                  "Send to Finance"
+                )}
               </Button>
+              
+              <style>{`
+                @keyframes spin {
+                  0% { transform: rotate(0deg); }
+                  100% { transform: rotate(360deg); }
+                }
+              `}</style>
             </div>
           )}
         </Modal>
@@ -1200,9 +1277,188 @@ export default function CRMPage() {
               onClick={handleCreateNewOrder} 
               fullWidth 
               style={{ backgroundColor: "#000", color: "#fff", padding: "10px" }}
-              disabled={!newOrderData.clientId || !newOrderData.itemName || !newOrderData.quantity}
+              disabled={!newOrderData.clientId || !newOrderData.itemName || !newOrderData.quantity || creatingOrder}
             >
-              Create Order
+              {creatingOrder ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                  <div style={{ 
+                    width: "16px", 
+                    height: "16px", 
+                    border: "2px solid #fff", 
+                    borderTop: "2px solid transparent", 
+                    borderRadius: "50%", 
+                    animation: "spin 1s linear infinite" 
+                  }}></div>
+                  Creating Order...
+                </div>
+              ) : (
+                "Create Order"
+              )}
+            </Button>
+            
+            <style>{`
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}</style>
+          </div>
+        </Modal>
+
+        {/* Order Success Modal */}
+        <Modal 
+          opened={showOrderSuccessModal} 
+          onClose={() => setShowOrderSuccessModal(false)} 
+          title="" 
+          centered
+          size="sm"
+          styles={{ 
+            header: { display: "none" }, 
+            body: { padding: "0" } 
+          }}
+        >
+          <div style={{ 
+            fontFamily: "Poppins, sans-serif", 
+            textAlign: "center", 
+            padding: "40px 30px 30px 30px" 
+          }}>
+            {/* Success Icon */}
+            <div style={{ 
+              width: "60px", 
+              height: "60px", 
+              backgroundColor: "#28a745", 
+              borderRadius: "50%", 
+              display: "flex", 
+              alignItems: "center", 
+              justifyContent: "center", 
+              margin: "0 auto 20px auto" 
+            }}>
+              <svg 
+                width="30" 
+                height="30" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="white" 
+                strokeWidth="3" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              >
+                <polyline points="20,6 9,17 4,12"></polyline>
+              </svg>
+            </div>
+            
+            {/* Success Message */}
+            <Text style={{ 
+              fontSize: "20px", 
+              fontWeight: "600", 
+              marginBottom: "12px", 
+              color: "#333" 
+            }}>
+              Order Created Successfully!
+            </Text>
+            
+            <Text style={{ 
+              fontSize: "14px", 
+              color: "#666", 
+              marginBottom: "25px",
+              lineHeight: "1.5"
+            }}>
+              Your order has been created and sent for approval. You'll be notified once it's reviewed.
+            </Text>
+            
+            {/* Action Button */}
+            <Button 
+              onClick={() => setShowOrderSuccessModal(false)} 
+              fullWidth 
+              style={{ 
+                backgroundColor: "#28a745", 
+                color: "#fff", 
+                padding: "12px",
+                fontSize: "14px",
+                fontWeight: "600"
+              }}
+            >
+              Continue
+            </Button>
+          </div>
+        </Modal>
+
+        {/* Finance Success Modal */}
+        <Modal 
+          opened={showFinanceSuccessModal} 
+          onClose={() => setShowFinanceSuccessModal(false)} 
+          title="" 
+          centered
+          size="sm"
+          styles={{ 
+            header: { display: "none" }, 
+            body: { padding: "0" } 
+          }}
+        >
+          <div style={{ 
+            fontFamily: "Poppins, sans-serif", 
+            textAlign: "center", 
+            padding: "40px 30px 30px 30px" 
+          }}>
+            {/* Success Icon */}
+            <div style={{ 
+              width: "60px", 
+              height: "60px", 
+              backgroundColor: "#6f42c1", 
+              borderRadius: "50%", 
+              display: "flex", 
+              alignItems: "center", 
+              justifyContent: "center", 
+              margin: "0 auto 20px auto" 
+            }}>
+              <svg 
+                width="30" 
+                height="30" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="white" 
+                strokeWidth="3" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              >
+                <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                <path d="M2 17l10 5 10-5"></path>
+                <path d="M2 12l10 5 10-5"></path>
+              </svg>
+            </div>
+            
+            {/* Success Message */}
+            <Text style={{ 
+              fontSize: "20px", 
+              fontWeight: "600", 
+              marginBottom: "12px", 
+              color: "#333" 
+            }}>
+              Order Sent to Finance!
+            </Text>
+            
+            <Text style={{ 
+              fontSize: "14px", 
+              color: "#666", 
+              marginBottom: "25px",
+              lineHeight: "1.5"
+            }}>
+              The order with pricing details has been successfully sent to the finance team for processing.
+            </Text>
+            
+            {/* Action Button */}
+            <Button 
+              onClick={() => setShowFinanceSuccessModal(false)} 
+              fullWidth 
+              style={{ 
+                backgroundColor: "#6f42c1", 
+                color: "#fff", 
+                padding: "12px",
+                fontSize: "14px",
+                fontWeight: "600"
+              }}
+            >
+              Continue
             </Button>
           </div>
         </Modal>

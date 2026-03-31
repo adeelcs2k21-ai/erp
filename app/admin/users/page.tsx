@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Box, Button, Input, Text, Table, Group, Select, MultiSelect } from "@mantine/core";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { LogoutButton } from "@/components/LogoutButton";
 
 interface User {
   id: string;
@@ -263,7 +262,6 @@ export default function UsersPage() {
           </Table.Tbody>
         </Table>
       </Box>
-      <LogoutButton />
     </ProtectedRoute>
   );
 }

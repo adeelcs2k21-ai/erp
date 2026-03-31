@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Box, Button, Text } from "@mantine/core";
 import { Navigation } from "@/components/Navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { LogoutButton } from "@/components/LogoutButton";
 
 interface Notification {
   id: string;
@@ -314,7 +313,6 @@ export default function Website() {
           </Button>
         </Box>
       </Box>
-      <LogoutButton />
     </ProtectedRoute>
   );
 }

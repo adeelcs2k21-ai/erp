@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Box, Text, Button, Table, Badge, Group, Modal, Textarea, Tabs, Input, Select, NumberInput } from "@mantine/core";
 import { Navigation } from "@/components/Navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { LogoutButton } from "@/components/LogoutButton";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
@@ -63,6 +62,10 @@ function ClientOrdersPanel() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<string | null>("pending");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<any>(null);
+  const [deletingOrder, setDeletingOrder] = useState(false);
+  const [showDeleteSuccessModal, setShowDeleteSuccessModal] = useState(false);
 
   const fetchData = async () => {
     const [or, cl] = await Promise.all([fetch("/api/crm/orders"), fetch("/api/crm/clients")]);
@@ -81,6 +84,72 @@ function ClientOrdersPanel() {
   const reject = async (id: string) => {
     await fetch("/api/crm/orders", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: "cancelled" }) });
     fetchData(); setSelected((p: any) => p ? { ...p, status: "cancelled" } : null);
+  };
+
+  const deleteOrder = async () => {
+    if (!orderToDelete) return;
+    
+    setDeletingOrder(true);
+    
+    try {
+      // If order is fulfilled, restore inventory stock
+      if (orderToDelete.status === "fulfilled") {
+        // Find the product by name and restore stock
+        const productsRes = await fetch("/api/products");
+        const products = await productsRes.json();
+        const product = products.find((p: any) => p.name.toLowerCase() === orderToDelete.product_name.toLowerCase());
+        
+        if (product) {
+          const newStock = product.stock + orderToDelete.quantity;
+          
+          // Update product stock
+          await fetch("/api/products", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: product.id,
+              stock: newStock
+            })
+          });
+          
+          // Add to product history
+          await fetch("/api/products/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              product_id: product.id,
+              product_name: product.name,
+              action: "order_deleted",
+              quantity_change: orderToDelete.quantity,
+              stock_before: product.stock,
+              stock_after: newStock,
+              note: `Order deleted - Stock restored for ${orderToDelete.client_name} - Order #${orderToDelete.id.slice(0, 8)}`,
+              created_by: "admin",
+              snapshot_image: product.images?.[0] || null,
+              snapshot_price: product.price || 0,
+              snapshot_unit: product.unit || "pieces"
+            })
+          });
+        }
+      }
+      
+      // Delete the order
+      await fetch("/api/crm/orders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderToDelete.id })
+      });
+      
+      setShowDeleteModal(false);
+      setOrderToDelete(null);
+      setDeletingOrder(false);
+      setShowDeleteSuccessModal(true);
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      setDeletingOrder(false);
+      alert("Error deleting order. Please try again.");
+    }
   };
 
   if (loading) return <Text style={{ color: "#999", fontFamily: "Poppins, sans-serif" }}>Loading...</Text>;
@@ -149,9 +218,12 @@ function ClientOrdersPanel() {
                 <Table.Tr>
                   <Table.Th>Client</Table.Th>
                   <Table.Th>Product</Table.Th>
-                  <Table.Th>Qty</Table.Th>
+                  <Table.Th>Order Amount</Table.Th>
+                  <Table.Th>Payment Amount</Table.Th>
+                  <Table.Th>Payment Method</Table.Th>
+                  <Table.Th>Date Received</Table.Th>
                   <Table.Th>Status</Table.Th>
-                  <Table.Th>Date</Table.Th>
+                  <Table.Th>Actions</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -159,9 +231,25 @@ function ClientOrdersPanel() {
                   <Table.Tr key={o.id} style={{ cursor: "pointer" }} onClick={() => setSelected(o)}>
                     <Table.Td style={{ fontWeight: "600", color: "#007bff" }}>{o.client_name}</Table.Td>
                     <Table.Td>{o.product_name}</Table.Td>
-                    <Table.Td>{o.quantity} {o.unit}</Table.Td>
-                    <Table.Td><Badge color={o.status === "approved" ? "green" : "red"}>{o.status}</Badge></Table.Td>
-                    <Table.Td style={{ fontSize: "12px", color: "#888" }}>{new Date(o.created_at).toLocaleDateString()}</Table.Td>
+                    <Table.Td>PKR {(o.total_price || 0).toLocaleString()}</Table.Td>
+                    <Table.Td>PKR {(o.payment_amount || 0).toLocaleString()}</Table.Td>
+                    <Table.Td>{o.payment_method || "-"}</Table.Td>
+                    <Table.Td style={{ fontSize: "12px", color: "#888" }}>
+                      {o.payment_confirmed_at ? new Date(o.payment_confirmed_at).toLocaleDateString() : "-"}
+                    </Table.Td>
+                    <Table.Td><Badge color={o.status === "approved" ? "green" : o.status === "fulfilled" ? "blue" : "red"}>{o.status}</Badge></Table.Td>
+                    <Table.Td onClick={(e: any) => e.stopPropagation()}>
+                      <Button 
+                        size="xs" 
+                        onClick={() => {
+                          setOrderToDelete(o);
+                          setShowDeleteModal(true);
+                        }}
+                        style={{ backgroundColor: "#dc3545", color: "white" }}
+                      >
+                        Delete
+                      </Button>
+                    </Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
@@ -211,6 +299,185 @@ function ClientOrdersPanel() {
           </div>
         )}
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal 
+        opened={showDeleteModal} 
+        onClose={() => !deletingOrder && setShowDeleteModal(false)} 
+        title="" 
+        centered
+        size="sm"
+        styles={{ 
+          header: { display: "none" }, 
+          body: { padding: "0" } 
+        }}
+      >
+        <div style={{ 
+          fontFamily: "Poppins, sans-serif", 
+          textAlign: "center", 
+          padding: "40px 30px 30px 30px" 
+        }}>
+          {/* Warning Icon */}
+          <div style={{ 
+            width: "60px", 
+            height: "60px", 
+            backgroundColor: "#dc3545", 
+            borderRadius: "50%", 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center", 
+            margin: "0 auto 20px auto" 
+          }}>
+            <svg 
+              width="30" 
+              height="30" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="white" 
+              strokeWidth="3" 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+            >
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+          
+          {/* Confirmation Message */}
+          <Text style={{ 
+            fontSize: "20px", 
+            fontWeight: "600", 
+            marginBottom: "12px", 
+            color: "#333" 
+          }}>
+            Delete Order?
+          </Text>
+          
+          <Text style={{ 
+            fontSize: "14px", 
+            color: "#666", 
+            marginBottom: "25px",
+            lineHeight: "1.5"
+          }}>
+            {orderToDelete?.status === "fulfilled" 
+              ? `This will delete the order and restore ${orderToDelete?.quantity} ${orderToDelete?.unit} of "${orderToDelete?.product_name}" back to inventory.`
+              : "This action cannot be undone. The order will be permanently deleted."
+            }
+          </Text>
+          
+          {/* Action Buttons */}
+          <div style={{ display: "flex", gap: "12px" }}>
+            <Button 
+              onClick={() => setShowDeleteModal(false)}
+              disabled={deletingOrder}
+              style={{ 
+                flex: 1,
+                backgroundColor: "transparent", 
+                color: "#666", 
+                border: "1px solid #ddd",
+                padding: "12px",
+                fontSize: "14px",
+                fontWeight: "600"
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={deleteOrder}
+              loading={deletingOrder}
+              style={{ 
+                flex: 1,
+                backgroundColor: "#dc3545", 
+                color: "#fff", 
+                padding: "12px",
+                fontSize: "14px",
+                fontWeight: "600"
+              }}
+            >
+              {deletingOrder ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Success Modal */}
+      <Modal 
+        opened={showDeleteSuccessModal} 
+        onClose={() => setShowDeleteSuccessModal(false)} 
+        title="" 
+        centered
+        size="sm"
+        styles={{ 
+          header: { display: "none" }, 
+          body: { padding: "0" } 
+        }}
+      >
+        <div style={{ 
+          fontFamily: "Poppins, sans-serif", 
+          textAlign: "center", 
+          padding: "40px 30px 30px 30px" 
+        }}>
+          {/* Success Icon */}
+          <div style={{ 
+            width: "60px", 
+            height: "60px", 
+            backgroundColor: "#28a745", 
+            borderRadius: "50%", 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center", 
+            margin: "0 auto 20px auto" 
+          }}>
+            <svg 
+              width="30" 
+              height="30" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="white" 
+              strokeWidth="3" 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+            >
+              <polyline points="20,6 9,17 4,12"></polyline>
+            </svg>
+          </div>
+          
+          {/* Success Message */}
+          <Text style={{ 
+            fontSize: "20px", 
+            fontWeight: "600", 
+            marginBottom: "12px", 
+            color: "#333" 
+          }}>
+            Order Deleted Successfully!
+          </Text>
+          
+          <Text style={{ 
+            fontSize: "14px", 
+            color: "#666", 
+            marginBottom: "25px",
+            lineHeight: "1.5"
+          }}>
+            The order has been deleted and inventory has been updated accordingly.
+          </Text>
+          
+          {/* Action Button */}
+          <Button 
+            onClick={() => setShowDeleteSuccessModal(false)} 
+            fullWidth 
+            style={{ 
+              backgroundColor: "#28a745", 
+              color: "#fff", 
+              padding: "12px",
+              fontSize: "14px",
+              fontWeight: "600"
+            }}
+          >
+            Continue
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -235,6 +502,9 @@ export default function Dashboard() {
   const [editSuppliers, setEditSuppliers] = useState<Supplier[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [selectedSupplierDropdown, setSelectedSupplierDropdown] = useState<string | null>(null);
+  const [showDeletePOConfirm, setShowDeletePOConfirm] = useState(false);
+  const [poToDelete, setPoToDelete] = useState<string | null>(null);
+  const [deletingPO, setDeletingPO] = useState(false);
 
   useEffect(() => {
     const userStr = localStorage.getItem("user");
@@ -479,6 +749,103 @@ export default function Dashboard() {
     return `https://wa.me/${supplier.phone.replace(/\D/g, "")}?text=${encodedMessage}`;
   };
 
+  const downloadBOMPDF = (order: PurchaseOrder) => {
+    const doc = new jsPDF();
+    
+    // Title
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('BILL OF MATERIALS', 20, 20);
+    
+    // BOM Details
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`BOM Number: ${order.poNumber}`, 20, 35);
+    doc.text(`Delivery Date: ${order.deliveryDate}`, 20, 42);
+    doc.text(`Payment Terms: ${order.paymentTerms || 'N/A'}`, 20, 49);
+    doc.text(`Status: ${order.status.replace(/_/g, ' ').toUpperCase()}`, 20, 56);
+    doc.text(`Created By: ${order.createdBy}`, 20, 63);
+    
+    // Items Table Header
+    doc.setFont('helvetica', 'bold');
+    doc.text('Item Name', 20, 80);
+    doc.text('Type', 90, 80);
+    doc.text('Quantity', 130, 80);
+    doc.text('Unit', 170, 80);
+    doc.line(20, 82, 190, 82);
+    
+    // Items
+    doc.setFont('helvetica', 'normal');
+    let yPos = 90;
+    order.items.forEach((item, index) => {
+      if (yPos > 270) {
+        doc.addPage();
+        yPos = 20;
+      }
+      doc.text(item.itemName.substring(0, 30), 20, yPos);
+      doc.text(item.itemType || 'N/A', 90, yPos);
+      doc.text(item.quantity.toString(), 130, yPos);
+      doc.text(item.unit, 170, yPos);
+      yPos += 7;
+    });
+    
+    // Total Amount
+    yPos += 5;
+    if (yPos > 270) {
+      doc.addPage();
+      yPos = 20;
+    }
+    doc.line(20, yPos, 190, yPos);
+    yPos += 7;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total Amount: PKR ${order.totalAmount?.toFixed(2) || '0.00'}`, 20, yPos);
+    
+    // Notes
+    if (order.notes) {
+      yPos += 10;
+      if (yPos > 270) {
+        doc.addPage();
+        yPos = 20;
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.text('Notes:', 20, yPos);
+      yPos += 7;
+      doc.setFont('helvetica', 'normal');
+      const splitNotes = doc.splitTextToSize(order.notes, 170);
+      splitNotes.forEach((line: string) => {
+        if (yPos > 280) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.text(line, 20, yPos);
+        yPos += 7;
+      });
+    }
+    
+    // Suppliers
+    if (order.suppliers && order.suppliers.length > 0) {
+      yPos += 10;
+      if (yPos > 270) {
+        doc.addPage();
+        yPos = 20;
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.text('Suppliers:', 20, yPos);
+      yPos += 7;
+      doc.setFont('helvetica', 'normal');
+      order.suppliers.forEach((supplier) => {
+        if (yPos > 280) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.text(`- ${supplier.name} (${supplier.phone})`, 20, yPos);
+        yPos += 7;
+      });
+    }
+    
+    doc.save(`BOM-${order.poNumber}.pdf`);
+  };
+
   const exportToPDF = async (po: PurchaseOrder) => {
     try {
       // Create a temporary container for rendering
@@ -625,20 +992,28 @@ export default function Dashboard() {
   };
 
   const deletePO = async (poId: string) => {
-    if (!confirm("Are you sure you want to delete this PO? This action cannot be undone.")) {
-      return;
-    }
+    setPoToDelete(poId);
+    setShowDeletePOConfirm(true);
+  };
+
+  const confirmDeletePO = async () => {
+    if (!poToDelete) return;
+    setDeletingPO(true);
     try {
       await fetch("/api/purchase/orders", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: poId }),
+        body: JSON.stringify({ id: poToDelete }),
       });
       setShowApprovalModal(false);
+      setShowDeletePOConfirm(false);
+      setPoToDelete(null);
       fetchPendingOrders();
       fetchNotifications();
     } catch (error) {
       console.error("Error deleting PO:", error);
+    } finally {
+      setDeletingPO(false);
     }
   };
 
@@ -908,23 +1283,39 @@ export default function Dashboard() {
                                       </Badge>
                                     </Table.Td>
                                     <Table.Td>
-                                      <Button
-                                        onClick={() => {
-                                          setSelectedPO(order);
-                                          setShowApprovalModal(true);
-                                        }}
-                                        size="xs"
-                                        style={{
-                                          backgroundColor: "transparent",
-                                          color: "#999",
-                                          border: "1px solid #e0e0e0",
-                                          fontFamily: "Poppins, sans-serif",
-                                          fontSize: "11px",
-                                          padding: "6px 12px",
-                                        }}
-                                      >
-                                        Review
-                                      </Button>
+                                      <div style={{ display: 'flex', gap: '6px' }}>
+                                        <Button
+                                          onClick={() => {
+                                            setSelectedPO(order);
+                                            setShowApprovalModal(true);
+                                          }}
+                                          size="xs"
+                                          style={{
+                                            backgroundColor: "transparent",
+                                            color: "#999",
+                                            border: "1px solid #e0e0e0",
+                                            fontFamily: "Poppins, sans-serif",
+                                            fontSize: "11px",
+                                            padding: "6px 12px",
+                                          }}
+                                        >
+                                          Review
+                                        </Button>
+                                        <Button
+                                          onClick={() => downloadBOMPDF(order)}
+                                          size="xs"
+                                          style={{
+                                            backgroundColor: "#28a745",
+                                            color: "#fff",
+                                            border: "none",
+                                            fontFamily: "Poppins, sans-serif",
+                                            fontSize: "11px",
+                                            padding: "6px 12px",
+                                          }}
+                                        >
+                                          📄 PDF
+                                        </Button>
+                                      </div>
                                     </Table.Td>
                                   </Table.Tr>
                                 ))}
@@ -1048,7 +1439,36 @@ export default function Dashboard() {
           </Box>
         </Box>
       </Box>
-      <LogoutButton />
+
+      {/* Delete PO Confirm Modal */}
+      {showDeletePOConfirm && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "28px", width: "380px", fontFamily: "Poppins, sans-serif", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+            <div style={{ width: "44px", height: "44px", borderRadius: "50%", backgroundColor: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "16px", fontSize: "20px" }}>
+              🗑️
+            </div>
+            <div style={{ fontSize: "16px", fontWeight: "700", color: "#111", marginBottom: "8px" }}>Delete this PO?</div>
+            <div style={{ fontSize: "13px", color: "#666", marginBottom: "24px", lineHeight: "1.5" }}>
+              This action cannot be undone. The purchase order will be permanently deleted.
+            </div>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button
+                onClick={() => { setShowDeletePOConfirm(false); setPoToDelete(null); }}
+                style={{ flex: 1, padding: "10px", border: "1px solid #e0e0e0", borderRadius: "8px", background: "white", fontSize: "13px", cursor: "pointer", fontFamily: "Poppins, sans-serif", color: "#555", fontWeight: "500" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeletePO}
+                disabled={deletingPO}
+                style={{ flex: 1, padding: "10px", border: "none", borderRadius: "8px", background: "#dc2626", color: "white", fontSize: "13px", cursor: deletingPO ? "not-allowed" : "pointer", fontFamily: "Poppins, sans-serif", fontWeight: "600", opacity: deletingPO ? 0.7 : 1 }}
+              >
+                {deletingPO ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Approval Modal */}
       <Modal

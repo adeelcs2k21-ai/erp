@@ -49,13 +49,24 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const { id, status } = await request.json();
+  const { id, status, paymentMethod, paymentAmount, paymentScreenshot, paymentNotes, approvedBy } = await request.json();
   const { data, error } = await supabaseAdmin
     .from("bom_invoices")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ 
+      status, 
+      updated_at: new Date().toISOString(),
+      ...(paymentMethod && { payment_method: paymentMethod }),
+      ...(paymentAmount && { payment_amount: paymentAmount }),
+      ...(paymentScreenshot && { payment_screenshot: paymentScreenshot }),
+      ...(paymentNotes && { payment_notes: paymentNotes }),
+      ...(approvedBy && { approved_by: approvedBy }),
+    })
     .eq("id", id)
     .select()
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("BOM invoice update error:", error.message, error.details, error.hint);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json({ success: true, invoice: data });
 }

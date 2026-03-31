@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Box, Button, Text } from "@mantine/core";
+import { Box, Text } from "@mantine/core";
 import { Navigation } from "@/components/Navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { LogoutButton } from "@/components/LogoutButton";
 
 export default function Manufacturing() {
-  const [currentPage, setCurrentPage] = useState(4);
+  const [currentPage] = useState(4);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
@@ -74,7 +73,7 @@ export default function Manufacturing() {
               }}
             >
               <Box style={{ position: "relative" }}>
-                <Button
+                <button
                   onClick={() => setShowNotifications(!showNotifications)}
                   style={{
                     backgroundColor: "transparent",
@@ -84,6 +83,7 @@ export default function Manufacturing() {
                     padding: "6px 10px",
                     fontSize: "14px",
                     fontWeight: "300",
+                    cursor: "pointer",
                   }}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -91,7 +91,7 @@ export default function Manufacturing() {
                     <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                   </svg>
                   {notifications.length > 0 && notifications.length}
-                </Button>
+                </button>
                 {showNotifications && (
                   <>
                     <Box
@@ -163,7 +163,6 @@ export default function Manufacturing() {
           </Box>
         </Box>
       </Box>
-      <LogoutButton />
     </ProtectedRoute>
   );
 }
